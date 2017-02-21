@@ -21,8 +21,10 @@
 
 #include "windows.h"
 #include "fftwlite.h"
+#include "avs/config.h"
 
-#ifdef WITH3DNOW
+#ifndef X86_64
+
 //
 void ApplyWiener3D2_3DNow(fftwf_complex *outcur, fftwf_complex *outprev, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta)
 {

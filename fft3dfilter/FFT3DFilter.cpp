@@ -101,7 +101,7 @@
 #include <algorithm>
 
 // declarations of filtering functions:
-#ifdef WITH3DNOW
+#ifndef X86_64
 // 3DNow
 void ApplyWiener3D2_3DNow(fftwf_complex *outcur, fftwf_complex *outprev, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta);
 void ApplyWiener3D3_3DNow(fftwf_complex *outcur, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta);
@@ -155,12 +155,10 @@ void ApplyWiener2D(fftwf_complex *out, int outwidth, int outpitch, int bh, int h
 //-------------------------------------------------------------------------------------------
 void ApplyWiener3D2(fftwf_complex *outcur, fftwf_complex *outprev, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta, int CPUFlags)
 {
-#ifdef WITH3DNOW
+#ifndef X86_64
   if (CPUFlags & CPUF_3DNOW_EXT)
     ApplyWiener3D2_3DNow(outcur, outprev, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta);
   else 
-#endif
-#ifndef X86_64
   if (CPUFlags & CPUF_SSE)
     ApplyWiener3D2_SSE(outcur, outprev, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta);
   else
@@ -180,12 +178,10 @@ void ApplyPattern3D2(fftwf_complex *outcur, fftwf_complex *outprev, int outwidth
 //-------------------------------------------------------------------------------------------
 void ApplyWiener3D3(fftwf_complex *out, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta, int CPUFlags)
 {
-#ifdef WITH3DNOW
+#ifndef X86_64
   if (CPUFlags & CPUF_3DNOW_EXT)
     ApplyWiener3D3_3DNow(out, outprev, outnext, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta);
   else 
-#endif
-#ifndef X86_64
     if (CPUFlags & CPUF_SSE)
     ApplyWiener3D3_SSE(out, outprev, outnext, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta);
   else
@@ -250,7 +246,7 @@ void ApplyPattern3D4_degrid(fftwf_complex *out, fftwf_complex *outprev2, fftwf_c
 //-------------------------------------------------------------------------------------------
 void ApplyWiener3D4(fftwf_complex *out, fftwf_complex *outprev2, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta, int CPUFlags)
 {
-#ifdef WITH3DNOW
+#ifndef X86_64
   if (CPUFlags & CPUF_3DNOW_EXT)
     ApplyWiener3D4_3DNow(out, outprev2, outprev, outnext, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta);
   else
@@ -270,7 +266,7 @@ void ApplyKalmanPattern(fftwf_complex *outcur, fftwf_complex *outLast, fftwf_com
 //-------------------------------------------------------------------------------------------
 void ApplyKalman(fftwf_complex *outcur, fftwf_complex *outLast, fftwf_complex *covar, fftwf_complex *covarProcess, int outwidth, int outpitch, int bh, int howmanyblocks, float covarNoiseNormed, float kratio2, int CPUFlags)
 {
-#ifdef WITH3DNOW
+#ifndef X86_64
   if (CPUFlags & CPUF_3DNOW_EXT)
     ApplyKalman_3DNow(outcur, outLast, covar, covarProcess, outwidth, outpitch, bh, howmanyblocks, covarNoiseNormed, kratio2);
   else
