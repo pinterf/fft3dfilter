@@ -27,3 +27,9 @@
 *.exe
 *.out
 *.app
+
+# custom
+fft3dfilter/build/*
+build/*
+*.suo
+*.VC.db
