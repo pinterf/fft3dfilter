@@ -78,6 +78,10 @@
   20170221 pinterf
            current avs+ headers
            look for libfftw3f-3.dll first, then fftw3.dll
+           check bit depth
+           error on greyscale clip when plane>0 specified
+           auto register MT mode for avs+: MT_SERIALIZED
+
 */
 #define VERSION_NUMBER 2.2
 
@@ -452,6 +456,11 @@ class FFT3DFilter : public GenericVideoFilter {
 
   int CPUFlags;
 
+  // avs+
+  int pixelsize;
+  int bits_per_pixel;
+  int planes[4]; // prefilled PLANAR_Y/PLANAR_U/PLANAR_V/PLANAR_A or PLANAR_G/PLANAR_B/PLANAR_R
+
   fftwf_complex ** cachefft; //v1.8
   int * cachewhat;//v1.8
   int cachesize;//v1.8
@@ -487,6 +496,12 @@ public:
   PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
   // This is the function that AviSynth calls to get a given frame.
   // So when this functions gets called, the filter is supposed to return frame n.
+
+  // Auto register AVS+ mode: serialized
+  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
+    return cachehints == CACHE_GET_MTMODE ? MT_SERIALIZED : 0;
+  }
+
 };
 
 
@@ -517,6 +532,15 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
 
   int i, j;
 
+  pixelsize = vi.ComponentSize();
+  bits_per_pixel = vi.BitsPerComponent();
+
+  int planes_y[4] = { PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A };
+  int planes_r[4] = { PLANAR_G, PLANAR_B, PLANAR_R, PLANAR_A };
+  int *current_planes = (vi.IsYUV() || vi.IsYUVA()) ? planes_y : planes_r;
+  for (i = 0; i < 4; i++)
+    planes[i] = current_planes[i];
+
 #ifndef X86_64
   _mm_empty(); // _asm emms;
 #endif
@@ -530,8 +554,14 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
 
   if (bt < -1 || bt >5) env->ThrowError("FFT3DFilter: bt must be -1(Sharpen), 0(Kalman), 1,2,3,4,5(Wiener)");
 
-  if (vi.IsPlanar())
+  // plane: 0 - luma(Y), 1 - chroma U, 2 - chroma V
+  // multiplanes are handled in FFT3DFilterMulti constructor: 3 - chroma planes U and V, 4 - both luma and chroma(default = 0)
+  if (vi.IsPlanar()) // also for grey
   {
+    int avs_plane = planes[plane];
+    nox = ((vi.width >> vi.GetPlaneWidthSubsampling(avs_plane)) - ow + (bw - ow - 1)) / (bw - ow);
+    noy = ((vi.height >> vi.GetPlaneHeightSubsampling(avs_plane)) - oh + (bh - oh - 1)) / (bh - oh);
+    /*
     if (plane == 0)
     { // Y
       nox = (vi.width - ow + (bw - ow - 1)) / (bw - ow); //removed mirrors (added below) in v.1.2
@@ -542,7 +572,9 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
       nox = ((vi.width >> vi.GetPlaneWidthSubsampling(1 << plane)) - ow + (bw - ow - 1)) / (bw - ow);
       noy = ((vi.height >> vi.GetPlaneHeightSubsampling(1 << plane)) - oh + (bh - oh - 1)) / (bh - oh);
     }
+    */
   }
+  /* handled in planar
   else if (vi.IsY8())
   {
     if (plane == 0)
@@ -550,7 +582,7 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
       nox = (vi.width - ow + (bw - ow - 1)) / (bw - ow);
       noy = (vi.height - oh + (bh - oh - 1)) / (bh - oh);
     }
-  }
+  }*/
   else if (vi.IsYUY2())
   {
     if (plane == 0)
@@ -3117,6 +3149,8 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
 // This is the function that created the filter, when the filter has been called.
 // This can be used for simple parameter checking, so it is possible to create different filters,
 // based on the arguments recieved.
+
+// PF: never called. Create_FFT3DFilterMulti is the real filter
 AVSValue __cdecl Create_FFT3DFilter(AVSValue args, void* user_data, IScriptEnvironment* env)
 {
   // Calls the constructor with the arguments provided.
@@ -3171,6 +3205,10 @@ class FFT3DFilterMulti : public GenericVideoFilter {
   PClip YClip, UClip, VClip;
   int multiplane;
 
+  // avs+
+  int pixelsize;
+  int bits_per_pixel;
+
 public:
   // This defines that these functions are present in your class.
   // These functions must be that same as those actually implemented.
@@ -3194,6 +3232,12 @@ public:
   PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
   // This is the function that AviSynth calls to get a given frame.
   // So when this functions gets called, the filter is supposed to return frame n.
+
+  // Auto register AVS+ mode: serialized
+  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
+    return cachehints == CACHE_GET_MTMODE ? MT_SERIALIZED : 0;
+  }
+
 };
 
 
@@ -3211,12 +3255,22 @@ FFT3DFilterMulti::FFT3DFilterMulti(PClip _child, float _sigma, float _beta, int 
   float _dehalo, float _hr, float _ht, int _ncpu, IScriptEnvironment* env) :
 
   GenericVideoFilter(_child) {
+
+  pixelsize = vi.ComponentSize();
+  bits_per_pixel = vi.BitsPerComponent();
+
+  if (bits_per_pixel > 8)
+    env->ThrowError("FFT3DFilter: only 8 bit clips are allowed!");
+
   // This is the implementation of the constructor.
   // The child clip (source clip) is inherited by the GenericVideoFilter,
   //  where the following variables gets defined:
   //   PClip child;   // Contains the source clip.
   //   VideoInfo vi;  // Contains videoinfo on the source clip.
   multiplane = _multiplane;
+
+  if (vi.IsY() && multiplane != 0)
+    env->ThrowError("FFT3DFilter: only plane=0 allowed for greyscale clips!");
 
   /*
   _multiplane == 0 : process Y, copy U, copy V
@@ -3227,6 +3281,7 @@ FFT3DFilterMulti::FFT3DFilterMulti(PClip _child, float _sigma, float _beta, int 
   */
   if (_multiplane == 0 || _multiplane == 1 || _multiplane == 2)
   {
+    // fallback to single plane mode
     filtered = new FFT3DFilter(_child, _sigma, _beta, _multiplane, _bw, _bh, _bt, _ow, _oh,
       _kratio, _sharpen, _scutoff, _svr, _smin, _smax,
       _measure, _interlaced, _wintype,
@@ -3235,7 +3290,6 @@ FFT3DFilterMulti::FFT3DFilterMulti(PClip _child, float _sigma, float _beta, int 
   }
   else if (_multiplane == 3 || _multiplane == 4)
   {
-
     UClip = new FFT3DFilter(_child, _sigma, _beta, 1, _bw, _bh, _bt, _ow, _oh,
       _kratio, _sharpen, _scutoff, _svr, _smin, _smax,
       _measure, _interlaced, _wintype,
