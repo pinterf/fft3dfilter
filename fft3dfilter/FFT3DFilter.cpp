@@ -75,15 +75,17 @@
   Version 2.1.1 - February 19, 2007 - fixed bug with bw not mod 4 (restored v1.9.2 window method)
   Version 2.2   - February 25, 2015 - martin53: made AviSynth 2.6 ready, FFT3dFilter2_VersionNumber function, error msgs
 
-  20170221 pinterf
-           current avs+ headers
-           look for libfftw3f-3.dll first, then fftw3.dll
-           check bit depth
-           error on greyscale clip when plane>0 specified
-           auto register MT mode for avs+: MT_SERIALIZED
+  Version 2.3     February 21, 2017 pinterf
+                    - apply current avs+ headers
+                    - 10-16 bits and 32 bit float colorspace support in AVS+
+                    - Planar RGB support
+                    - look for libfftw3f-3.dll first, then fftw3.dll
+                    - inline asm ignored on x64 builds
+                    - pre-check: if plane to process for greyscale is U and/or V return original clip
+                    - auto register MT mode for avs+: MT_SERIALIZED
 
 */
-#define VERSION_NUMBER 2.2
+#define VERSION_NUMBER 2.3
 
 //#include "windows.h"
 #include <avisynth.h>
@@ -96,6 +98,7 @@
 #include "info.h"
 #include <emmintrin.h>
 #include <mmintrin.h> // _mm_empty
+#include <algorithm>
 
 // declarations of filtering functions:
 #ifdef WITH3DNOW
@@ -346,7 +349,7 @@ class FFT3DFilter : public GenericVideoFilter {
   // All functions present in the filter must also be present here.
 
   //  parameters
-  float sigma; // noise level (std deviation) for high frequncies
+  float sigma; // noise level (std deviation) for high frequncies ***
   float beta; // relative noise margin for Wiener filter
   int plane; // color plane
   int bw;// block width
@@ -358,8 +361,8 @@ class FFT3DFilter : public GenericVideoFilter {
   float sharpen; // sharpen factor (0 to 1 and above)
   float scutoff; // sharpen cufoff frequency (relative to max) - v1.7
   float svr; // sharpen vertical ratio (0 to 1 and above) - v.1.0
-  float smin; // minimum limit for sharpen (prevent noise amplifying) - v.1.1
-  float smax; // maximum limit for sharpen (prevent oversharping) - v.1.1
+  float smin; // minimum limit for sharpen (prevent noise amplifying) - v.1.1  ***
+  float smax; // maximum limit for sharpen (prevent oversharping) - v.1.1      ***
   bool measure; // fft optimal method
   bool interlaced;
   int wintype; // window type
@@ -369,9 +372,9 @@ class FFT3DFilter : public GenericVideoFilter {
   bool pshow; // show noise pattern
   float pcutoff; // pattern cutoff frequency (relative to max)
   float pfactor; // noise pattern denoise strength
-  float sigma2; // noise level for middle frequencies
-  float sigma3; // noise level for low frequencies
-  float sigma4; // noise level for lowest (zero) frequencies
+  float sigma2; // noise level for middle frequencies           ***
+  float sigma3; // noise level for low frequencies              ***
+  float sigma4; // noise level for lowest (zero) frequencies    ***
   float degrid; // decrease grid
   float dehalo; // remove halo strength - v.1.9
   float hr; // halo radius - v1.9
@@ -432,6 +435,7 @@ class FFT3DFilter : public GenericVideoFilter {
   int mirh; // mirror height for padding
 
   int planeBase; // color base value (0 for luma, 128 for chroma)
+  float planeBase_f; // for float
 
   float *mean;
 
@@ -468,8 +472,16 @@ class FFT3DFilter : public GenericVideoFilter {
 //	float *fullwinan; // disabled in v2.2.1, return to v1.9.2 method
 //	float *fullwinsyn;
 
-  void FFT3DFilter::InitOverlapPlane(float * inp, const BYTE *srcp, int src_pitch, int planeBase);
-  void FFT3DFilter::DecodeOverlapPlane(float *in, float norm, BYTE *dstp, int dst_pitch, int planeBase);
+  //void FFT3DFilter::InitOverlapPlane(float * inp, const BYTE *srcp, int src_pitch, int planeBase);
+  template<typename pixel_t>
+  void do_InitOverlapPlane(float * inp, const BYTE *srcp, int src_pitch, int planeBase, float planebase_f);
+
+  void InitOverlapPlane(float * inp, const BYTE *srcp, int src_pitch, int planeBase, float planebase_f);
+
+  template<typename pixel_t, int bits_per_pixel>
+  void do_DecodeOverlapPlane(float *in, float norm, BYTE *dstp, int dst_pitch, int planeBase, float planebase_f);
+
+  void DecodeOverlapPlane(float *in, float norm, BYTE *dstp, int dst_pitch, int planeBase, float planebase_f);
   //	void FFT3DFilter::InitFullWin(float * inp0, float *wanxl, float *wanxr, float *wanyl, float *wanyr);
   //	void FFT3DFilter::InitOverlapPlaneWin(float * inp0, const BYTE *srcp0, int src_pitch, int planeBase, float * fullwin);
 
@@ -535,6 +547,19 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   pixelsize = vi.ComponentSize();
   bits_per_pixel = vi.BitsPerComponent();
 
+  float factor;
+  if (pixelsize == 1) factor = 1.0f;
+  else if (pixelsize == 2) factor = float(1 << (bits_per_pixel-8));
+  else // float
+    factor = 1 / 255.0f;
+
+  sigma = sigma * factor;
+  sigma2 = sigma2 * factor;
+  sigma3 = sigma3 * factor;
+  sigma4 = sigma4 * factor;
+  smin = smin * factor;
+  smax = smax * factor;
+
   int planes_y[4] = { PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A };
   int planes_r[4] = { PLANAR_G, PLANAR_B, PLANAR_R, PLANAR_A };
   int *current_planes = (vi.IsYUV() || vi.IsYUVA()) ? planes_y : planes_r;
@@ -559,8 +584,12 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   if (vi.IsPlanar()) // also for grey
   {
     int avs_plane = planes[plane];
-    nox = ((vi.width >> vi.GetPlaneWidthSubsampling(avs_plane)) - ow + (bw - ow - 1)) / (bw - ow);
-    noy = ((vi.height >> vi.GetPlaneHeightSubsampling(avs_plane)) - oh + (bh - oh - 1)) / (bh - oh);
+    bool greyOrRgb = vi.IsY() || vi.IsRGB();
+    int xRatioShift = (greyOrRgb) ? 0 : vi.GetPlaneWidthSubsampling(avs_plane);
+    int yRatioShift = (greyOrRgb) ? 0 : vi.GetPlaneHeightSubsampling(avs_plane);
+
+    nox = ((vi.width >> xRatioShift) - ow + (bw - ow - 1)) / (bw - ow);
+    noy = ((vi.height >> yRatioShift) - oh + (bh - oh - 1)) / (bh - oh);
     /*
     if (plane == 0)
     { // Y
@@ -636,8 +665,8 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
 
   coverwidth = nox*(bw - ow) + ow;
   coverheight = noy*(bh - oh) + oh;
-  coverpitch = ((coverwidth + 7) / 8) * 8;
-  coverbuf = (BYTE*)malloc(coverheight*coverpitch);
+  coverpitch = ((coverwidth + 7) / 8) * 8; // pitch is element-granularity. For byte pitch, multiply is by pixelsize
+  coverbuf = (BYTE*)malloc(coverheight*coverpitch*pixelsize);
 
   int insize = bw*bh*nox*noy;
   in = (float *)fftwf_malloc(sizeof(float) * insize);
@@ -915,8 +944,16 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   plan1 = fftwf_plan_many_dft_r2c(rank, ndim, 1,
     in, inembed, istride, idist, outrez, onembed, ostride, odist, planFlags); // 1 block
 
-  memset(coverbuf, 255, coverheight*coverpitch);
-  FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, 0);
+  // avs+
+  switch (pixelsize) {
+  case 1: memset(coverbuf, 255, coverheight*coverpitch); 
+    break;
+  case 2: std::fill_n((uint16_t *)coverbuf, coverheight*coverpitch, (1 << bits_per_pixel) - 1); 
+    break; // 255 
+  case 4: std::fill_n((float *)coverbuf, coverheight*coverpitch, 1.0f); 
+    break; // 255 
+  }
+  FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, 0, 0.0f);
   // make FFT 2D
   fftwf_execute_dft_r2c(plan1, in, gridsample);
 
@@ -990,17 +1027,20 @@ FFT3DFilter::~FFT3DFilter() {
 }
 //-----------------------------------------------------------------------
 //
-void PlanarPlaneToCoverbuf(const BYTE *srcp, int src_width, int src_height, int src_pitch, BYTE *coverbuf, int coverwidth, int coverheight, int coverpitch, int mirw, int mirh, bool interlaced, IScriptEnvironment* env)
+template<typename pixel_t>
+void PlanarPlaneToCoverbuf(const pixel_t *srcp, int src_width, int src_height, int src_pitch, pixel_t *coverbuf, int coverwidth, int coverheight, int coverpitch, int mirw, int mirh, bool interlaced, IScriptEnvironment* env)
 {
   int h, w;
   int width2 = src_width + src_width + mirw + mirw - 2;
-  BYTE * coverbuf1 = coverbuf + coverpitch*mirh;
+  pixel_t * coverbuf1 = coverbuf + coverpitch*mirh;
+
+  int pixelsize = sizeof(pixel_t);
 
   if (!interlaced) //progressive
   {
     for (h = mirh; h < src_height + mirh; h++)
     {
-      env->BitBlt(coverbuf1 + mirw, coverpitch, srcp, src_pitch, src_width, 1); // copy line
+      env->BitBlt((byte *)(coverbuf1 + mirw), coverpitch*pixelsize, (const byte *)srcp, src_pitch*pixelsize, src_width*pixelsize, 1); // copy line
       for (w = 0; w < mirw; w++)
       {
         coverbuf1[w] = coverbuf1[mirw + mirw - w]; // mirror left border
@@ -1017,7 +1057,7 @@ void PlanarPlaneToCoverbuf(const BYTE *srcp, int src_width, int src_height, int 
   {
     for (h = mirh; h < src_height / 2 + mirh; h++) // first field
     {
-      env->BitBlt(coverbuf1 + mirw, coverpitch, srcp, src_pitch, src_width, 1); // copy line
+      env->BitBlt((byte *)(coverbuf1 + mirw), coverpitch*pixelsize, (const byte *)srcp, src_pitch*pixelsize, src_width*pixelsize, 1); // copy line
       for (w = 0; w < mirw; w++)
       {
         coverbuf1[w] = coverbuf1[mirw + mirw - w]; // mirror left border
@@ -1033,7 +1073,7 @@ void PlanarPlaneToCoverbuf(const BYTE *srcp, int src_width, int src_height, int 
     srcp -= src_pitch;
     for (h = src_height / 2 + mirh; h < src_height + mirh; h++) // flip second field
     {
-      env->BitBlt(coverbuf1 + mirw, coverpitch, srcp, src_pitch, src_width, 1); // copy line
+      env->BitBlt((byte *)(coverbuf1 + mirw), coverpitch*pixelsize, (const byte *)srcp, src_pitch*pixelsize, src_width*pixelsize, 1); // copy line
       for (w = 0; w < mirw; w++)
       {
         coverbuf1[w] = coverbuf1[mirw + mirw - w]; // mirror left border
@@ -1047,10 +1087,10 @@ void PlanarPlaneToCoverbuf(const BYTE *srcp, int src_width, int src_height, int 
     }
   }
 
-  BYTE * pmirror = coverbuf1 - coverpitch * 2; // pointer to vertical mirror
+  pixel_t * pmirror = coverbuf1 - coverpitch * 2; // pointer to vertical mirror
   for (h = src_height + mirh; h < coverheight; h++)
   {
-    env->BitBlt(coverbuf1, coverpitch, pmirror, coverpitch, coverwidth, 1); // mirror bottom line by line
+    env->BitBlt((byte *)coverbuf1, coverpitch*pixelsize, (const byte *)pmirror, coverpitch*pixelsize, coverwidth*pixelsize, 1); // mirror bottom line by line
     coverbuf1 += coverpitch;
     pmirror -= coverpitch;
   }
@@ -1058,22 +1098,26 @@ void PlanarPlaneToCoverbuf(const BYTE *srcp, int src_width, int src_height, int 
   pmirror = coverbuf1 + coverpitch*mirh * 2; // pointer to vertical mirror
   for (h = 0; h < mirh; h++)
   {
-    env->BitBlt(coverbuf1, coverpitch, pmirror, coverpitch, coverwidth, 1); // mirror bottom line by line
+    env->BitBlt((byte *)coverbuf1, coverpitch*pixelsize, (const byte *)pmirror, coverpitch*pixelsize, coverwidth*pixelsize, 1); // mirror bottom line by line
     coverbuf1 += coverpitch;
     pmirror -= coverpitch;
   }
 }
 //-----------------------------------------------------------------------
 //
-void CoverbufToPlanarPlane(const BYTE *coverbuf, int coverwidth, int coverheight, int coverpitch, BYTE *dstp, int dst_width, int dst_height, int dst_pitch, int mirw, int mirh, bool interlaced, IScriptEnvironment* env)
+template<typename pixel_t>
+void CoverbufToPlanarPlane(const pixel_t *coverbuf, int coverwidth, int coverheight, int coverpitch, pixel_t *dstp, int dst_width, int dst_height, int dst_pitch, int mirw, int mirh, bool interlaced, IScriptEnvironment* env)
 {
   int h;
-  const BYTE *coverbuf1 = coverbuf + coverpitch*mirh + mirw;
+
+  int pixelsize = sizeof(pixel_t);
+
+  const pixel_t *coverbuf1 = coverbuf + coverpitch*mirh + mirw;
   if (!interlaced) // progressive
   {
     for (h = 0; h < dst_height; h++)
     {
-      env->BitBlt(dstp, dst_pitch, coverbuf1, coverpitch, dst_width, 1); // copy pure frame size only
+      env->BitBlt((byte *)dstp, dst_pitch*pixelsize, (const byte *)coverbuf1, coverpitch*pixelsize, dst_width*pixelsize, 1); // copy pure frame size only
       dstp += dst_pitch;
       coverbuf1 += coverpitch;
     }
@@ -1082,7 +1126,7 @@ void CoverbufToPlanarPlane(const BYTE *coverbuf, int coverwidth, int coverheight
   {
     for (h = 0; h < dst_height; h += 2)
     {
-      env->BitBlt(dstp, dst_pitch, coverbuf1, coverpitch, dst_width, 1); // copy pure frame size only
+      env->BitBlt((byte *)dstp, dst_pitch*pixelsize, (const byte *)coverbuf1, coverpitch*pixelsize, dst_width*pixelsize, 1); // copy pure frame size only
       dstp += dst_pitch * 2;
       coverbuf1 += coverpitch;
     }
@@ -1090,7 +1134,7 @@ void CoverbufToPlanarPlane(const BYTE *coverbuf, int coverwidth, int coverheight
     dstp -= dst_pitch;
     for (h = 0; h < dst_height; h += 2)
     {
-      env->BitBlt(dstp, dst_pitch, coverbuf1, coverpitch, dst_width, 1); // copy pure frame size only
+      env->BitBlt((byte *)dstp, dst_pitch*pixelsize, (const byte *)coverbuf1, coverpitch*pixelsize, dst_width*pixelsize, 1); // copy pure frame size only
       dstp -= dst_pitch * 2;
       coverbuf1 += coverpitch;
     }
@@ -1391,19 +1435,31 @@ void CoverbufToYUY2Plane(int plane, const BYTE *coverbuf, int coverwidth, int co
 }
 //-----------------------------------------------------------------------
 //
-void FramePlaneToCoverbuf(int plane, PVideoFrame &src, VideoInfo vi1, BYTE *coverbuf, int coverwidth, int coverheight, int coverpitch, int mirw, int mirh, bool interlaced, IScriptEnvironment* env)
+void FramePlaneToCoverbuf(int plane, PVideoFrame &src, VideoInfo vi1, BYTE *coverbuf, int coverwidth, int coverheight, int coverpitch, int mirw, int mirh, bool interlaced, int bits_per_pixel, IScriptEnvironment* env)
 {
   const BYTE *srcp;
   int src_width, src_height, src_pitch;
   int planarNum;
-  if (vi1.IsPlanar() || vi1.IsY8()) // YV12
+
+  int pixelsize = bits_per_pixel == 8 ? 1 : (bits_per_pixel == 32 ? 4 : 2);
+
+  if (vi1.IsPlanar()/* || vi1.IsY8()*/) // was: YV12 || Y8
   {
-    planarNum = 1 << plane;
+    int planes_y[4] = { PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A };
+    int planes_r[4] = { PLANAR_G, PLANAR_B, PLANAR_R, PLANAR_A };
+    int *planes = (vi1.IsYUV() || vi1.IsYUVA()) ? planes_y : planes_r;
+    planarNum = planes[plane];
+
     srcp = src->GetReadPtr(planarNum);
     src_height = src->GetHeight(planarNum);
-    src_width = src->GetRowSize(planarNum);
-    src_pitch = src->GetPitch(planarNum);
-    PlanarPlaneToCoverbuf(srcp, src_width, src_height, src_pitch, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
+    src_width = src->GetRowSize(planarNum) / pixelsize; // real width!
+    src_pitch = src->GetPitch(planarNum) / pixelsize; // same pixel_t granularity as coverXXX
+    switch (bits_per_pixel)
+    {
+    case 8: PlanarPlaneToCoverbuf<uint8_t>(srcp, src_width, src_height, src_pitch, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env); break;
+    case 10: case 12: case 14: case 16: PlanarPlaneToCoverbuf<uint16_t>((uint16_t *)srcp, src_width, src_height, src_pitch, (uint16_t *)coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env); break;
+    case 32: PlanarPlaneToCoverbuf<float>((float *)srcp, src_width, src_height, src_pitch, (float *)coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env); break;
+    }
   }
   else // YUY2
   {
@@ -1416,19 +1472,32 @@ void FramePlaneToCoverbuf(int plane, PVideoFrame &src, VideoInfo vi1, BYTE *cove
 }
 //-----------------------------------------------------------------------
 //
-void CoverbufToFramePlane(int plane, const BYTE *coverbuf, int coverwidth, int coverheight, int coverpitch, PVideoFrame &dst, VideoInfo vi1, int mirw, int mirh, bool interlaced, IScriptEnvironment* env)
+void CoverbufToFramePlane(int plane, const BYTE *coverbuf, int coverwidth, int coverheight, int coverpitch, PVideoFrame &dst, VideoInfo vi1, int mirw, int mirh, bool interlaced, int bits_per_pixel, IScriptEnvironment* env)
 {
   BYTE *dstp;
   int dst_width, dst_height, dst_pitch;
   int planarNum;
-  if (vi1.IsPlanar() || vi1.IsY8()) // YV12
+
+  int pixelsize = bits_per_pixel == 8 ? 1 : (bits_per_pixel == 32 ? 4 : 2);
+
+  if (vi1.IsPlanar()/* || vi1.IsY8()*/) // was: YV12 || Y8
   {
-    planarNum = 1 << plane;
+    int planes_y[4] = { PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A };
+    int planes_r[4] = { PLANAR_G, PLANAR_B, PLANAR_R, PLANAR_A };
+    int *planes = (vi1.IsYUV() || vi1.IsYUVA()) ? planes_y : planes_r;
+    planarNum = planes[plane];
+
     dstp = dst->GetWritePtr(planarNum);
     dst_height = dst->GetHeight(planarNum);
-    dst_width = dst->GetRowSize(planarNum);
-    dst_pitch = dst->GetPitch(planarNum);
-    CoverbufToPlanarPlane(coverbuf, coverwidth, coverheight, coverpitch, dstp, dst_width, dst_height, dst_pitch, mirw, mirh, interlaced, env);
+    dst_width = dst->GetRowSize(planarNum) / pixelsize; // real width!;
+    dst_pitch = dst->GetPitch(planarNum) / pixelsize; // same pixel_t granularity as coverXXX;
+    switch (bits_per_pixel)
+    {
+    case 8: CoverbufToPlanarPlane<uint8_t>(coverbuf, coverwidth, coverheight, coverpitch, dstp, dst_width, dst_height, dst_pitch, mirw, mirh, interlaced, env); break;
+    case 10: case 12: case 14: case 16: CoverbufToPlanarPlane<uint16_t>((uint16_t *)coverbuf, coverwidth, coverheight, coverpitch, (uint16_t *)dstp, dst_width, dst_height, dst_pitch, mirw, mirh, interlaced, env); break;
+    case 32: CoverbufToPlanarPlane<float>((float *)coverbuf, coverwidth, coverheight, coverpitch, (float *)dstp, dst_width, dst_height, dst_pitch, mirw, mirh, interlaced, env); break;
+    }
+
   }
   else // YUY2
   {
@@ -1443,11 +1512,23 @@ void CoverbufToFramePlane(int plane, const BYTE *coverbuf, int coverwidth, int c
 // put source bytes to float array of overlapped blocks
 // use analysis windows
 //
-void FFT3DFilter::InitOverlapPlane(float * inp0, const BYTE *srcp0, int src_pitch, int planeBase)
+
+void FFT3DFilter::InitOverlapPlane(float * inp0, const BYTE *srcp0, int src_pitch, int planeBase, float planeBase_f)
 {
+  switch (pixelsize) {
+  case 1: do_InitOverlapPlane<uint8_t>(inp0, srcp0, src_pitch, planeBase, planeBase_f); break;
+  case 2: do_InitOverlapPlane<uint16_t>(inp0, srcp0, src_pitch, planeBase, planeBase_f); break;
+  case 4: do_InitOverlapPlane<float>(inp0, srcp0, src_pitch, planeBase, planeBase_f); break;
+  }
+}
+
+template<typename pixel_t>
+void FFT3DFilter::do_InitOverlapPlane(float * inp0, const BYTE *srcp0, int src_pitch, int planeBase_i, float planeBase_f)
+{
+  // pitch is pixel_t granularity, can be used directly as scrp+=pitch
   int w, h;
   int ihx, ihy;
-  const BYTE *srcp = srcp0;// + (hrest/2)*src_pitch + wrest/2; // centered
+  const pixel_t *srcp = reinterpret_cast<const pixel_t *>(srcp0);// + (hrest/2)*src_pitch + wrest/2; // centered
   float ftmp;
   int xoffset = bh*bw - (bw - ow); // skip frames
   int yoffset = bw*nox*bh - bw*(bh - oh); // vertical offset of same block (overlap)
@@ -1456,6 +1537,8 @@ void FFT3DFilter::InitOverlapPlane(float * inp0, const BYTE *srcp0, int src_pitc
   //	char debugbuf[1536];
   //	wsprintf(debugbuf,"FFT3DFilter: InitOverlapPlane");
   //	OutputDebugString(debugbuf);
+  typedef std::conditional<sizeof(pixel_t) == 4, float, int>::type cast_t;
+  cast_t planeBase = sizeof(pixel_t) == 4 ? cast_t(planeBase_f) : cast_t(planeBase_i); // anti warning
 
   ihy = 0; // first top (big non-overlapped) part
   {
@@ -2030,14 +2113,33 @@ void FFT3DFilter::InitOverlapPlaneWin(float * inp, const BYTE *srcp, int src_pit
 //-----------------------------------------------------------------------------------------
 // make destination frame plane from overlaped blocks
 // use synthesis windows wsynxl, wsynxr, wsynyl, wsynyr
-void FFT3DFilter::DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, int dst_pitch, int planeBase)
+void FFT3DFilter::DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, int dst_pitch, int planeBase, float planeBase_f)
+{
+  switch (bits_per_pixel) {
+  case 8: do_DecodeOverlapPlane<uint8_t,8>(inp0, norm, dstp0, dst_pitch, planeBase, planeBase_f); break;
+  case 10: do_DecodeOverlapPlane<uint16_t,10>(inp0, norm, dstp0, dst_pitch, planeBase, planeBase_f); break;
+  case 12: do_DecodeOverlapPlane<uint16_t, 12>(inp0, norm, dstp0, dst_pitch, planeBase, planeBase_f); break;
+  case 14: do_DecodeOverlapPlane<uint16_t, 14>(inp0, norm, dstp0, dst_pitch, planeBase, planeBase_f); break;
+  case 16: do_DecodeOverlapPlane<uint16_t, 16>(inp0, norm, dstp0, dst_pitch, planeBase, planeBase_f); break;
+  case 32: do_DecodeOverlapPlane<float,0>(inp0, norm, dstp0, dst_pitch, planeBase, planeBase_f); break;
+  }
+}
+
+template<typename pixel_t, int bits_per_pixel>
+void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, int dst_pitch, int planeBase_i, float planeBase_f)
 {
   int w, h;
   int ihx, ihy;
-  BYTE *dstp = dstp0;// + (hrest/2)*dst_pitch + wrest/2; // centered
+  pixel_t *dstp = reinterpret_cast<pixel_t *>(dstp0);// + (hrest/2)*dst_pitch + wrest/2; // centered
   float *inp = inp0;
   int xoffset = bh*bw - (bw - ow);
   int yoffset = bw*nox*bh - bw*(bh - oh); // vertical offset of same block (overlap)
+
+  typedef std::conditional<sizeof(pixel_t) == 4, float, int>::type cast_t;
+
+  cast_t planeBase = sizeof(pixel_t) == 4 ? cast_t(planeBase_f) : cast_t(planeBase_i); // anti warning
+
+  cast_t max_pixel_value = sizeof(pixel_t) == 4 ? (pixel_t)1.0f : (pixel_t)((1 << bits_per_pixel) - 1);
 
   ihy = 0; // first top big non-overlapped) part
   {
@@ -2046,7 +2148,7 @@ void FFT3DFilter::DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, int d
       inp = inp0 + h*bw;
       for (w = 0; w < bw - ow; w++)   // first half line of first block
       {
-        dstp[w] = min(255, max(0, (int)(inp[w] * norm) + planeBase));   // Copy each byte from float array to dest with windows
+        dstp[w] = min(cast_t(max_pixel_value), max((cast_t)0, (cast_t)(inp[w] * norm) + planeBase));   // Copy each byte from float array to dest with windows
       }
       inp += bw - ow;
       dstp += bw - ow;
@@ -2054,20 +2156,20 @@ void FFT3DFilter::DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, int d
       {
         for (w = 0; w < ow; w++)   // half line of block
         {
-          dstp[w] = min(255, max(0, (int)((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*norm) + planeBase));   // overlapped Copy
+          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*norm) + planeBase));   // overlapped Copy
         }
         inp += xoffset + ow;
         dstp += ow;
         for (w = 0; w < bw - ow - ow; w++)   // first half line of first block
         {
-          dstp[w] = min(255, max(0, (int)(inp[w] * norm) + planeBase));   // Copy each byte from float array to dest with windows
+          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)(inp[w] * norm) + planeBase));   // Copy each byte from float array to dest with windows
         }
         inp += bw - ow - ow;
         dstp += bw - ow - ow;
       }
       for (w = 0; w < ow; w++)   // last half line of last block
       {
-        dstp[w] = min(255, max(0, (int)(inp[w] * norm) + planeBase));
+        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)(inp[w] * norm) + planeBase));
       }
       inp += ow;
       dstp += ow;
@@ -2087,7 +2189,7 @@ void FFT3DFilter::DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, int d
 
       for (w = 0; w < bw - ow; w++)   // first half line of first block
       {
-        dstp[w] = min(255, max(0, (int)((inp[w] * wsynyrh + inp[w + yoffset] * wsynylh)) + planeBase));   // y overlapped
+        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w] * wsynyrh + inp[w + yoffset] * wsynylh)) + planeBase));   // y overlapped
       }
       inp += bw - ow;
       dstp += bw - ow;
@@ -2095,21 +2197,21 @@ void FFT3DFilter::DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, int d
       {
         for (w = 0; w < ow; w++)   // half overlapped line of block
         {
-          dstp[w] = min(255, max(0, (int)(((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*wsynyrh
+          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)(((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*wsynyrh
             + (inp[w + yoffset] * wsynxr[w] + inp[w + xoffset + yoffset] * wsynxl[w])*wsynylh)) + planeBase));   // x overlapped
         }
         inp += xoffset + ow;
         dstp += ow;
         for (w = 0; w < bw - ow - ow; w++)   // double minus - half non-overlapped line of block
         {
-          dstp[w] = min(255, max(0, (int)((inp[w] * wsynyrh + inp[w + yoffset] * wsynylh)) + planeBase));
+          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w] * wsynyrh + inp[w + yoffset] * wsynylh)) + planeBase));
         }
         inp += bw - ow - ow;
         dstp += bw - ow - ow;
       }
       for (w = 0; w < ow; w++)   // last half line of last block
       {
-        dstp[w] = min(255, max(0, (int)((inp[w] * wsynyrh + inp[w + yoffset] * wsynylh)) + planeBase));
+        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w] * wsynyrh + inp[w + yoffset] * wsynylh)) + planeBase));
       }
       inp += ow;
       dstp += ow;
@@ -2122,7 +2224,7 @@ void FFT3DFilter::DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, int d
       inp = inp0 + (ihy - 1)*(yoffset + (bh - oh)*bw) + (bh)*bw + h*bw + yoffset;
       for (w = 0; w < bw - ow; w++)   // first half line of first block
       {
-        dstp[w] = min(255, max(0, (int)((inp[w])*norm) + planeBase));
+        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w])*norm) + planeBase));
       }
       inp += bw - ow;
       dstp += bw - ow;
@@ -2130,20 +2232,20 @@ void FFT3DFilter::DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, int d
       {
         for (w = 0; w < ow; w++)   // half overlapped line of block
         {
-          dstp[w] = min(255, max(0, (int)((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*norm) + planeBase));   // x overlapped
+          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*norm) + planeBase));   // x overlapped
         }
         inp += xoffset + ow;
         dstp += ow;
         for (w = 0; w < bw - ow - ow; w++)   // half non-overlapped line of block
         {
-          dstp[w] = min(255, max(0, (int)((inp[w])*norm) + planeBase));
+          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w])*norm) + planeBase));
         }
         inp += bw - ow - ow;
         dstp += bw - ow - ow;
       }
       for (w = 0; w < ow; w++)   // last half line of last block
       {
-        dstp[w] = min(255, max(0, (int)((inp[w])*norm) + planeBase));
+        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w])*norm) + planeBase));
       }
       inp += ow;
       dstp += ow;
@@ -2160,7 +2262,7 @@ void FFT3DFilter::DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, int d
       inp = inp0 + (ihy - 1)*(yoffset + (bh - oh)*bw) + (bh - oh)*bw + h*bw;
       for (w = 0; w < bw - ow; w++)   // first half line of first block
       {
-        dstp[w] = min(255, max(0, (int)(inp[w] * norm) + planeBase));
+        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)(inp[w] * norm) + planeBase));
       }
       inp += bw - ow;
       dstp += bw - ow;
@@ -2168,20 +2270,20 @@ void FFT3DFilter::DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, int d
       {
         for (w = 0; w < ow; w++)   // half line of block
         {
-          dstp[w] = min(255, max(0, (int)((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*norm) + planeBase));   // overlapped Copy
+          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*norm) + planeBase));   // overlapped Copy
         }
         inp += xoffset + ow;
         dstp += ow;
         for (w = 0; w < bw - ow - ow; w++)   // half line of block
         {
-          dstp[w] = min(255, max(0, (int)((inp[w])*norm) + planeBase));
+          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w])*norm) + planeBase));
         }
         inp += bw - ow - ow;
         dstp += bw - ow - ow;
       }
       for (w = 0; w < ow; w++)   // last half line of last block
       {
-        dstp[w] = min(255, max(0, (int)(inp[w] * norm) + planeBase));
+        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)(inp[w] * norm) + planeBase));
       }
       inp += ow;
       dstp += ow;
@@ -2515,29 +2617,34 @@ void CopyFrame(PVideoFrame &src, PVideoFrame &dst, VideoInfo vi, int planeskip, 
   BYTE * dstp;
   int src_height, src_width, src_pitch;
   int dst_height, dst_width, dst_pitch;
-  int planeNum, plane;
+  int planarNum, plane;
 
+  // greyscale is planar as well
   if (vi.IsPlanar()) // copy all planes besides given
   {
-    for (plane = 0; plane < 3; plane++)
+    for (plane = 0; plane < (vi.IsY() ? 1 : 3); plane++)
     {
       if (plane != planeskip)
       {
-        planeNum = 1 << plane;
+        int planes_y[4] = { PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A };
+        int planes_r[4] = { PLANAR_G, PLANAR_B, PLANAR_R, PLANAR_A };
+        int *planes = (vi.IsYUV() || vi.IsYUVA()) ? planes_y : planes_r;
+        planarNum = planes[plane];
 
-        srcp = src->GetReadPtr(planeNum);
-        src_height = src->GetHeight(planeNum);
-        src_width = src->GetRowSize(planeNum);
-        src_pitch = src->GetPitch(planeNum);
-        dstp = dst->GetWritePtr(planeNum);
-        dst_height = dst->GetHeight(planeNum);
-        dst_width = dst->GetRowSize(planeNum);
-        dst_pitch = dst->GetPitch(planeNum);
+        srcp = src->GetReadPtr(planarNum);
+        src_height = src->GetHeight(planarNum);
+        src_width = src->GetRowSize(planarNum);
+        src_pitch = src->GetPitch(planarNum);
+        dstp = dst->GetWritePtr(planarNum);
+        dst_height = dst->GetHeight(planarNum);
+        dst_width = dst->GetRowSize(planarNum);
+        dst_pitch = dst->GetPitch(planarNum);
         env->BitBlt(dstp, dst_pitch, srcp, src_pitch, dst_width, dst_height); // copy one plane
       }
     }
 
   }
+  /*
   else if (vi.IsY8()) // copy Y planes if not given
   {
     if (0 != planeskip)
@@ -2555,6 +2662,7 @@ void CopyFrame(PVideoFrame &src, PVideoFrame &dst, VideoInfo vi, int planeskip, 
     }
 
   }
+  */
   else if (vi.IsYUY2()) // copy all
   {
     srcp = src->GetReadPtr();
@@ -2588,18 +2696,24 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
   _mm_empty(); // _asm emms;
 #endif
 
-  if (plane == 0)
+  bool isRGB = vi.IsRGB();
+
+  if (plane == 0 || isRGB) {
     planeBase = 0;
-  else
-    planeBase = 128; // neutral chroma value
+    planeBase_f = 0.0f;
+  }
+  else {
+    planeBase = (1 << (bits_per_pixel - 1)); // neutral chroma value
+    planeBase_f = 0.5f;
+  }
 
   if (pfactor != 0 && isPatternSet == false && pshow == false) // get noise pattern
   {
     psrc = child->GetFrame(pframe, env); // get noise pattern frame
 
     // put source bytes to float array of overlapped blocks
-    FramePlaneToCoverbuf(plane, psrc, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
-    FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase);
+    FramePlaneToCoverbuf(plane, psrc, vi, coverbuf, coverwidth, coverheight, coverpitch * pixelsize, mirw, mirh, interlaced, bits_per_pixel, env);
+    FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase, planeBase_f);
     // make FFT 2D
     fftwf_execute_dft_r2c(plan, in, outrez);
     if (px == 0 && py == 0) // try find pattern block with minimal noise sigma
@@ -2616,8 +2730,8 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
     CopyFrame(src, dst, vi, plane, env);
 
     // put source bytes to float array of overlapped blocks
-    FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
-    FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase);
+    FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
+    FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase, planeBase_f);
     // make FFT 2D
     fftwf_execute_dft_r2c(plan, in, outrez);
     if (px == 0 && py == 0) // try find pattern block with minimal noise sigma
@@ -2639,12 +2753,19 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       wanyl[i] = 1;	wanyr[i] = 1;	wsynyl[i] = 1;	wsynyr[i] = 1;
     }
 
-    planeBase = 128;
+    if (isRGB) {
+      planeBase = 0;
+      planeBase_f = 0.0f;
+    }
+    else {
+      planeBase = (1 << (bits_per_pixel - 1)); // 128
+      planeBase_f = 0.5f;
+    }
 
     // put source bytes to float array of overlapped blocks
     // cur frame
-    FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
-    FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase);
+    FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
+    FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase, planeBase_f);
     // make FFT 2D
     fftwf_execute_dft_r2c(plan, in, outrez);
 
@@ -2653,12 +2774,12 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
     fftwf_execute_dft_c2r(planinv, outrez, in);
 
     // make destination frame plane from current overlaped blocks
-    FFT3DFilter::DecodeOverlapPlane(in, norm, coverbuf, coverpitch, planeBase);
-    CoverbufToFramePlane(plane, coverbuf, coverwidth, coverheight, coverpitch, dst, vi, mirw, mirh, interlaced, env);
+    FFT3DFilter::DecodeOverlapPlane(in, norm, coverbuf, coverpitch, planeBase, planeBase_f);
+    CoverbufToFramePlane(plane, coverbuf, coverwidth, coverheight, coverpitch, dst, vi, mirw, mirh, interlaced, bits_per_pixel, env);
     int psigmaint = ((int)(10 * psigma)) / 10;
     int psigmadec = (int)((psigma - psigmaint) * 10);
     wsprintf(messagebuf, " frame=%d, px=%d, py=%d, sigma=%d.%d", n, pxf, pyf, psigmaint, psigmadec);
-    DrawString(dst, 0, 0, messagebuf, vi.IsYUY2());
+    DrawString(dst, vi, 0, 0, messagebuf);
 
     return dst; // return pattern frame to show
   }
@@ -2703,8 +2824,8 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
     if (btcur == 1) // 2D
     {
       // cur frame
-      FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
-      FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase);
+      FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
+      FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase, planeBase_f);
       //			FFT3DFilter::InitOverlapPlaneWin(in, coverbuf,  coverpitch, planeBase, fullwinan); // slower
             // make FFT 2D
       fftwf_execute_dft_r2c(plan, in, outrez);
@@ -2742,8 +2863,8 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       out = cachefft[cachecur];
       if (cachewhat[cachecur] != n)
       {
-        FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
-        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase);
+        FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
+        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase, planeBase_f);
         // make FFT 2D
         fftwf_execute_dft_r2c(plan, in, out);
         cachewhat[cachecur] = n;
@@ -2753,12 +2874,12 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       if (cachewhat[cachecur - 1] != n - 1)
       {
         prev = child->GetFrame(n - 1, env);
-        FramePlaneToCoverbuf(plane, prev, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
+        FramePlaneToCoverbuf(plane, prev, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
       }
       if (cachewhat[cachecur - 1] != n - 1)
       {
         // calculate prev
-        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase);
+        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase, planeBase_f);
         // make FFT 2D
         fftwf_execute_dft_r2c(plan, in, outprev);
         cachewhat[cachecur - 1] = n - 1;
@@ -2806,8 +2927,8 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       out = cachefft[cachecur];
       if (cachewhat[cachecur] != n)
       {
-        FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
-        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase);
+        FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
+        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase, planeBase_f);
         // make FFT 2D
         fftwf_execute_dft_r2c(plan, in, out);
         cachewhat[cachecur] = n;
@@ -2818,11 +2939,11 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       {
         // calculate prev
         prev = child->GetFrame(n - 1, env);
-        FramePlaneToCoverbuf(plane, prev, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
+        FramePlaneToCoverbuf(plane, prev, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
       }
       if (cachewhat[cachecur - 1] != n - 1)
       {
-        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase);
+        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase, planeBase_f);
         // make FFT 2D
         fftwf_execute_dft_r2c(plan, in, outprev);
         cachewhat[cachecur - 1] = n - 1;
@@ -2845,11 +2966,11 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       if (cachewhat[cachecur + 1] != n + 1)
       {
         next = child->GetFrame(n + 1, env);
-        FramePlaneToCoverbuf(plane, next, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
+        FramePlaneToCoverbuf(plane, next, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
       }
       if (cachewhat[cachecur + 1] != n + 1)
       {
-        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase);
+        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase, planeBase_f);
         // make FFT 2D
         fftwf_execute_dft_r2c(plan, in, outnext);
         cachewhat[cachecur + 1] = n + 1;
@@ -2885,8 +3006,8 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       out = cachefft[cachecur];
       if (cachewhat[cachecur] != n)
       {
-        FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
-        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase);
+        FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
+        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase, planeBase_f);
         // make FFT 2D
         fftwf_execute_dft_r2c(plan, in, out);
         cachewhat[cachecur] = n;
@@ -2897,11 +3018,11 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       {
         // calculate prev2
         prev2 = child->GetFrame(n - 2, env);
-        FramePlaneToCoverbuf(plane, prev2, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
+        FramePlaneToCoverbuf(plane, prev2, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
       }
       if (cachewhat[cachecur - 2] != n - 2)
       {
-        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase);
+        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase, planeBase_f);
         // make FFT 2D
         fftwf_execute_dft_r2c(plan, in, outprev2);
         cachewhat[cachecur - 2] = n - 2;
@@ -2924,11 +3045,11 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       if (cachewhat[cachecur - 1] != n - 1)
       {
         prev = child->GetFrame(n - 1, env);
-        FramePlaneToCoverbuf(plane, prev, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
+        FramePlaneToCoverbuf(plane, prev, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
       }
       if (cachewhat[cachecur - 1] != n - 1)
       {
-        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase);
+        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase, planeBase_f);
         // make FFT 2D
         fftwf_execute_dft_r2c(plan, in, outprev);
         cachewhat[cachecur - 1] = n - 1;
@@ -2938,11 +3059,11 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       if (cachewhat[cachecur + 1] != n + 1)
       {
         next = child->GetFrame(n + 1, env);
-        FramePlaneToCoverbuf(plane, next, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
+        FramePlaneToCoverbuf(plane, next, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
       }
       if (cachewhat[cachecur + 1] != n + 1)
       {
-        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase);
+        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase, planeBase_f);
         // make FFT 2D
         fftwf_execute_dft_r2c(plan, in, outnext);
         cachewhat[cachecur + 1] = n + 1;
@@ -2978,8 +3099,8 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       out = cachefft[cachecur];
       if (cachewhat[cachecur] != n)
       {
-        FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
-        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase);
+        FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
+        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase, planeBase_f);
         // make FFT 2D
         fftwf_execute_dft_r2c(plan, in, out);
         cachewhat[cachecur] = n;
@@ -2990,11 +3111,11 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       {
         // calculate prev2
         prev2 = child->GetFrame(n - 2, env);
-        FramePlaneToCoverbuf(plane, prev2, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
+        FramePlaneToCoverbuf(plane, prev2, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
       }
       if (cachewhat[cachecur - 2] != n - 2)
       {
-        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase);
+        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase, planeBase_f);
         // make FFT 2D
         fftwf_execute_dft_r2c(plan, in, outprev2);
         cachewhat[cachecur - 2] = n - 2;
@@ -3017,11 +3138,11 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       if (cachewhat[cachecur - 1] != n - 1)
       {
         prev = child->GetFrame(n - 1, env);
-        FramePlaneToCoverbuf(plane, prev, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
+        FramePlaneToCoverbuf(plane, prev, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
       }
       if (cachewhat[cachecur - 1] != n - 1)
       {
-        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase);
+        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase, planeBase_f);
         // make FFT 2D
         fftwf_execute_dft_r2c(plan, in, outprev);
         cachewhat[cachecur - 1] = n - 1;
@@ -3031,11 +3152,11 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       if (cachewhat[cachecur + 1] != n + 1)
       {
         next = child->GetFrame(n + 1, env);
-        FramePlaneToCoverbuf(plane, next, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
+        FramePlaneToCoverbuf(plane, next, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
       }
       if (cachewhat[cachecur + 1] != n + 1)
       {
-        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase);
+        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase, planeBase_f);
         // make FFT 2D
         fftwf_execute_dft_r2c(plan, in, outnext);
         cachewhat[cachecur + 1] = n + 1;
@@ -3045,11 +3166,11 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       if (cachewhat[cachecur + 2] != n + 2)
       {
         next2 = child->GetFrame(n + 2, env);
-        FramePlaneToCoverbuf(plane, next2, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
+        FramePlaneToCoverbuf(plane, next2, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
       }
       if (cachewhat[cachecur + 2] != n + 2)
       {
-        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase);
+        FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase, planeBase_f);
         // make FFT 2D
         fftwf_execute_dft_r2c(plan, in, outnext2);
         cachewhat[cachecur + 2] = n + 2;
@@ -3075,8 +3196,8 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       fftwf_execute_dft_c2r(planinv, outrez, in);
     }
     // make destination frame plane from current overlaped blocks
-    FFT3DFilter::DecodeOverlapPlane(in, norm, coverbuf, coverpitch, planeBase);
-    CoverbufToFramePlane(plane, coverbuf, coverwidth, coverheight, coverpitch, dst, vi, mirw, mirh, interlaced, env);
+    FFT3DFilter::DecodeOverlapPlane(in, norm, coverbuf, coverpitch, planeBase, planeBase_f);
+    CoverbufToFramePlane(plane, coverbuf, coverwidth, coverheight, coverpitch, dst, vi, mirw, mirh, interlaced, bits_per_pixel, env);
 
   }
   else if (bt == 0) //Kalman filter
@@ -3090,8 +3211,8 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
 
     // put source bytes to float array of overlapped blocks
     // cur frame
-    FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
-    FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase);
+    FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
+    FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase, planeBase_f);
     // make FFT 2D
     fftwf_execute_dft_r2c(plan, in, outrez);
     if (pfactor != 0)
@@ -3110,16 +3231,16 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
     // that is why we must have its copy in "outLast" array
     fftwf_execute_dft_c2r(planinv, outrez, in);
     // make destination frame plane from current overlaped blocks
-    FFT3DFilter::DecodeOverlapPlane(in, norm, coverbuf, coverpitch, planeBase);
-    CoverbufToFramePlane(plane, coverbuf, coverwidth, coverheight, coverpitch, dst, vi, mirw, mirh, interlaced, env);
+    FFT3DFilter::DecodeOverlapPlane(in, norm, coverbuf, coverpitch, planeBase, planeBase_f);
+    CoverbufToFramePlane(plane, coverbuf, coverwidth, coverheight, coverpitch, dst, vi, mirw, mirh, interlaced, bits_per_pixel, env);
 
   }
   else if (bt == -1) /// sharpen only
   {
     //		env->MakeWritable(&src);
         // put source bytes to float array of overlapped blocks
-    FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, env);
-    FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase);
+    FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
+    FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, planeBase, planeBase_f);
     // make FFT 2D
     fftwf_execute_dft_r2c(plan, in, outrez);
     if (degrid != 0)
@@ -3129,8 +3250,8 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
     // do inverse FFT 2D, get filtered 'in' array
     fftwf_execute_dft_c2r(planinv, outrez, in);
     // make destination frame plane from current overlaped blocks
-    FFT3DFilter::DecodeOverlapPlane(in, norm, coverbuf, coverpitch, planeBase);
-    CoverbufToFramePlane(plane, coverbuf, coverwidth, coverheight, coverpitch, dst, vi, mirw, mirh, interlaced, env);
+    FFT3DFilter::DecodeOverlapPlane(in, norm, coverbuf, coverpitch, planeBase, planeBase_f);
+    CoverbufToFramePlane(plane, coverbuf, coverwidth, coverheight, coverpitch, dst, vi, mirw, mirh, interlaced, bits_per_pixel, env);
 
   }
 
@@ -3165,12 +3286,12 @@ AVSValue __cdecl Create_FFT3DFilter(AVSValue args, void* user_data, IScriptEnvir
     args[6].AsInt(3), //  bt (=0 for Kalman mode) // new default=3 in v.0.9.3
     args[7].AsInt(-1), //  ow
     args[8].AsInt(-1), //  oh
-    (float)args[9].AsFloat(2.0), // kratio for Kalman mode
-    (float)args[10].AsFloat(0.0), // sharpen strength
-    (float)args[11].AsFloat(0.3), // sharpen cufoff frequency (relative to max) - v1.7
-    (float)args[12].AsFloat(1.0), // svr - sharpen vertical ratio
-    (float)args[13].AsFloat(4.0), // smin -  minimum limit for sharpen (prevent noise amplifying)
-    (float)args[14].AsFloat(20.0), // smax - maximum limit for sharpen (prevent oversharping)
+    (float)args[9].AsFloat(2.0f), // kratio for Kalman mode
+    (float)args[10].AsFloat(0.0f), // sharpen strength
+    (float)args[11].AsFloat(0.3f), // sharpen cufoff frequency (relative to max) - v1.7
+    (float)args[12].AsFloat(1.0f), // svr - sharpen vertical ratio
+    (float)args[13].AsFloat(4.0f), // smin -  minimum limit for sharpen (prevent noise amplifying)
+    (float)args[14].AsFloat(20.0f), // smax - maximum limit for sharpen (prevent oversharping)
     args[15].AsBool(true), // measure - switched to true in v.0.9.2
     args[16].AsBool(false), // interlaced - v.1.3
     args[17].AsInt(0), // wintype - v1.4, v1.8
@@ -3178,21 +3299,20 @@ AVSValue __cdecl Create_FFT3DFilter(AVSValue args, void* user_data, IScriptEnvir
     args[19].AsInt(0), //  px
     args[20].AsInt(0), //  py
     args[21].AsBool(false), //  pshow
-    (float)args[22].AsFloat(0.1), //  pcutoff
-    (float)args[23].AsFloat(0), //  pfactor
+    (float)args[22].AsFloat(0.1f), //  pcutoff
+    (float)args[23].AsFloat(0.0f), //  pfactor
     (float)args[24].AsFloat(sigma1), // sigma2
     (float)args[25].AsFloat(sigma1), // sigma3
     (float)args[26].AsFloat(sigma1), // sigma4
-    (float)args[27].AsFloat(1.0), // degrid
-    (float)args[28].AsFloat(0.0), // dehalo
-    (float)args[29].AsFloat(2.0), // halo radius
-    (float)args[30].AsFloat(50.0), // halo threshold - v 1.9
+    (float)args[27].AsFloat(1.0f), // degrid
+    (float)args[28].AsFloat(0.0f), // dehalo
+    (float)args[29].AsFloat(2.0f), // halo radius
+    (float)args[30].AsFloat(50.0f), // halo threshold - v 1.9
     args[31].AsInt(1), //  ncpu
     args[32].AsInt(0), //  multiplane
     env);
 }
 //-------------------------------------------------------------------------------------
-
 
 //-------------------------------------------------------------------------------------------
 class FFT3DFilterMulti : public GenericVideoFilter {
@@ -3259,18 +3379,41 @@ FFT3DFilterMulti::FFT3DFilterMulti(PClip _child, float _sigma, float _beta, int 
   pixelsize = vi.ComponentSize();
   bits_per_pixel = vi.BitsPerComponent();
 
+  // adaptive default: all planes for RGB
+  if (_multiplane == -1) {
+    if (vi.IsRGB())
+      _multiplane = 4;
+    else
+      _multiplane = 0;
+  }
+  /*
   if (bits_per_pixel > 8)
     env->ThrowError("FFT3DFilter: only 8 bit clips are allowed!");
+    */
 
   // This is the implementation of the constructor.
   // The child clip (source clip) is inherited by the GenericVideoFilter,
   //  where the following variables gets defined:
   //   PClip child;   // Contains the source clip.
   //   VideoInfo vi;  // Contains videoinfo on the source clip.
-  multiplane = _multiplane;
 
-  if (vi.IsY() && multiplane != 0)
-    env->ThrowError("FFT3DFilter: only plane=0 allowed for greyscale clips!");
+  // convert parameters for RGB clip
+  // planar RGB internal frame order G B R, plane=0->R, plane=1->G, plane2->B
+  if (vi.IsRGB() && vi.IsPlanar())
+  {
+    switch (_multiplane) {
+    case 0: _multiplane = 2; break; // R
+    case 1: break; // B
+    case 2: _multiplane = 0; break;
+    case 3: break; // n/a
+    case 4: break; // all planes
+    }
+  }
+
+  if (vi.IsY() && _multiplane == 4)
+    _multiplane = 0; // no accidental U and V!
+
+  multiplane = _multiplane;
 
   /*
   _multiplane == 0 : process Y, copy U, copy V
@@ -3279,6 +3422,8 @@ FFT3DFilterMulti::FFT3DFilterMulti(PClip _child, float _sigma, float _beta, int 
   _multiplane == 3 : copy Y, process U, process V
   _multiplane == 4 : process Y, process U, process V
   */
+
+
   if (_multiplane == 0 || _multiplane == 1 || _multiplane == 2)
   {
     // fallback to single plane mode
@@ -3391,21 +3536,29 @@ AVSValue __cdecl Create_FFT3DFilterMulti(AVSValue args, void* user_data, IScript
 {
   // Calls the constructor with the arguments provided.
   float sigma1 = (float)args[1].AsFloat(2.0);
+
+  // v2.3 pre-check: if plane to process for greyscale is U and/or V return original clip
+  int plane = args[3].AsInt(-1);
+  if (args[0].AsClip()->GetVideoInfo().IsY()) {
+    if (plane == 1 || plane == 2 || plane == 3) // U, V, U and V
+      return args[0].AsClip();
+  }
+
   return new FFT3DFilterMulti(args[0].AsClip(), // the 0th parameter is the source clip
     sigma1, // sigma
     (float)args[2].AsFloat(1.0), // beta
-    args[3].AsInt(0), // plane
+    args[3].AsInt(-1), // plane. default to -1 to allow adaptive default 4 for RGB, 0 for YUV
     args[4].AsInt(32), // bw - changed default from 48 to 32 in v.1.9.2
     args[5].AsInt(32), // bh - changed default from 48 to 32 in v.1.9.2
     args[6].AsInt(3), //  bt (=0 for Kalman mode) // new default=3 in v.0.9.3
     args[7].AsInt(-1), //  ow
     args[8].AsInt(-1), //  oh
-    (float)args[9].AsFloat(2.0), // kratio for Kalman mode
-    (float)args[10].AsFloat(0.0), // sharpen strength
-    (float)args[11].AsFloat(0.3), // sharpen cutoff frequency (relative to max) - v1.7
-    (float)args[12].AsFloat(1.0), // svr - sharpen vertical ratio
-    (float)args[13].AsFloat(4.0), // smin -  minimum limit for sharpen (prevent noise amplifying)
-    (float)args[14].AsFloat(20.0), // smax - maximum limit for sharpen (prevent oversharping)
+    (float)args[9].AsFloat(2.0f), // kratio for Kalman mode
+    (float)args[10].AsFloat(0.0f), // sharpen strength
+    (float)args[11].AsFloat(0.3f), // sharpen cutoff frequency (relative to max) - v1.7
+    (float)args[12].AsFloat(1.0f), // svr - sharpen vertical ratio
+    (float)args[13].AsFloat(4.0f), // smin -  minimum limit for sharpen (prevent noise amplifying)
+    (float)args[14].AsFloat(20.0f), // smax - maximum limit for sharpen (prevent oversharping)
     args[15].AsBool(true), // measure - switched to true in v.0.9.2
     args[16].AsBool(false), // interlaced - v.1.3
     args[17].AsInt(0), // wintype - v1.4, v1.8
@@ -3413,15 +3566,15 @@ AVSValue __cdecl Create_FFT3DFilterMulti(AVSValue args, void* user_data, IScript
     args[19].AsInt(0), //  px
     args[20].AsInt(0), //  py
     args[21].AsBool(false), //  pshow
-    (float)args[22].AsFloat(0.1), //  pcutoff
-    (float)args[23].AsFloat(0), //  pfactor
+    (float)args[22].AsFloat(0.1f), //  pcutoff
+    (float)args[23].AsFloat(0.0f), //  pfactor
     (float)args[24].AsFloat(sigma1), // sigma2
     (float)args[25].AsFloat(sigma1), // sigma3
     (float)args[26].AsFloat(sigma1), // sigma4
-    (float)args[27].AsFloat(1.0), // degrid
-    (float)args[28].AsFloat(0.0), // dehalo - v 1.9
-    (float)args[29].AsFloat(2.0), // halo radius - v 1.9
-    (float)args[30].AsFloat(50.0), // halo threshold - v 1.9
+    (float)args[27].AsFloat(1.0f), // degrid
+    (float)args[28].AsFloat(0.0f), // dehalo - v 1.9
+    (float)args[29].AsFloat(2.0f), // halo radius - v 1.9
+    (float)args[30].AsFloat(50.0f), // halo threshold - v 1.9
     args[31].AsInt(1), //  ncpu
     env);
 }
