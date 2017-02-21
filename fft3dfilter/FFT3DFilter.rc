@@ -1,6 +1,6 @@
 1 VERSIONINFO
- FILEVERSION 2,1,1,0
- PRODUCTVERSION 2,1,1,0
+ FILEVERSION 2,3,0,0
+ PRODUCTVERSION 2,3,0,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -15,17 +15,17 @@ BEGIN
     BEGIN
         BLOCK "000004b0"
         BEGIN
-            VALUE "Comments", "Frequency Domain filter. Uses external FFTW3.DLL library.\0"
+            VALUE "Comments", "Frequency Domain filter. Uses external libfftw3f-3.dll library.\0"
             VALUE "CompanyName", "A.G.Balakhnin aka Fizick, bag@hotmail.ru, http://avisynth.org.ru\0"
-            VALUE "FileDescription", "FFT3DFilter plugin for Avisynth 2.5\0"
-            VALUE "FileVersion", "2, 1, 1, 0\0"
+            VALUE "FileDescription", "FFT3DFilter plugin for Avisynth+ and Avisynth 2.6\0"
+            VALUE "FileVersion", "2, 3, 0, 0\0"
             VALUE "InternalName", "FFT3DFilter\0"
-            VALUE "LegalCopyright", "Copyright © 2004-2006 A.G.Balakhnin\0"
+            VALUE "LegalCopyright", "Copyright © 2004-2017 A.G.Balakhnin et al.\0"
             VALUE "LegalTrademarks", "\0"
             VALUE "OriginalFilename", "FFT3DFilter.dll\0"
             VALUE "PrivateBuild", "\0"
             VALUE "ProductName", "FFT3DFilter\0"
-            VALUE "ProductVersion", "2, 1, 1, 0\0"
+            VALUE "ProductVersion", "2, 3, 0, 0\0"
             VALUE "SpecialBuild", "\0"
         END
     END
