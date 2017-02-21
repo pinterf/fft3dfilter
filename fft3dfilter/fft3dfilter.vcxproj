@@ -170,6 +170,7 @@
     <ClCompile Include="fft3dfilter_3dnow.cpp" />
     <ClCompile Include="fft3dfilter_c.cpp" />
     <ClCompile Include="fft3dfilter_sse.cpp" />
+    <ClCompile Include="info.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="FFT3DFilter.rc" />
