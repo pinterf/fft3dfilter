@@ -488,6 +488,18 @@ re-enabled SSE optimization for degrid=0; added SSE optimization for bt=3,-1 wit
 </li>
 <li>Version 2.2   - February 25, 2015 - martin53: made AviSynth 2.6 ready, FFT3dFilter2_VersionNumber function, error msgs
 </li>
+</li>
+<li>Version 2.3   - February 21, 2017
+- apply current avs+ headers<br>
+- 10-16 bits and 32 bit float colorspace support in AVS+<br>
+- Planar RGB support<br>
+- look for libfftw3f-3.dll first, then fftw3.dll<br>
+- inline asm ignored on x64 builds<br>
+- pre-check: if plane to process for greyscale is U and/or V then returns original clip<br>
+- auto register MT mode for avs+: MT_SERIALIZED<br>
+- autoscale sigma and smin/smax parameter from 8 bit scale if colorspace is different
+
+</li>
 </ul>
 
 </body>
