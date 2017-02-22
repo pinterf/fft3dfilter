@@ -142,6 +142,7 @@ void ApplyPattern3D4_degrid_C(fftwf_complex *out, fftwf_complex *outprev2, fftwf
 void ApplyPattern3D5_degrid_C(fftwf_complex *out, fftwf_complex *outprev2, fftwf_complex *outprev, fftwf_complex *outnext, fftwf_complex *outnext2, int outwidth, int outpitch, int bh, int howmanyblocks, float* pattern3d, float beta, float degrid, fftwf_complex *gridsample);
 // degrid_SSE
 void ApplyWiener3D3_degrid_SSE(fftwf_complex *outcur, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta, float degrid, fftwf_complex *gridsample);
+void ApplyWiener3D3_degrid_SSE_simd(fftwf_complex *outcur, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta, float degrid, fftwf_complex *gridsample);
 void ApplyPattern3D3_degrid_SSE(fftwf_complex *out, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float *pattern3d, float beta, float degrid, fftwf_complex *gridsample);
 void Sharpen_degrid_SSE(fftwf_complex *outcur, int outwidth, int outpitch, int bh, int howmanyblocks, float sharpen, float sigmaSquaredSharpenMin, float sigmaSquaredSharpenMax, float *wsharpen, float degrid, fftwf_complex *gridsample, float dehalo, float *wdehalo, float ht2n);
 void ApplyWiener3D4_degrid_SSE(fftwf_complex *outcur, fftwf_complex *outprev2, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta, float degrid, fftwf_complex *gridsample);
@@ -193,7 +194,11 @@ void ApplyWiener3D3_degrid(fftwf_complex *out, fftwf_complex *outprev, fftwf_com
 {
 #ifndef X86_64
   if (CPUFlags & CPUF_SSE)
-    ApplyWiener3D3_degrid_SSE(out, outprev, outnext, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta, degrid, gridsample);
+    ApplyWiener3D3_degrid_SSE_simd(out, outprev, outnext, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta, degrid, gridsample);
+  else
+#else
+  if (CPUFlags & CPUF_SSE2)
+    ApplyWiener3D3_degrid_SSE_simd(out, outprev, outnext, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta, degrid, gridsample);
   else
 #endif
     ApplyWiener3D3_degrid_C(out, outprev, outnext, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta, degrid, gridsample);
@@ -656,12 +661,12 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   }
   if (istat == 0 || hinstLib == NULL || fftwf_free == NULL || fftwf_malloc == NULL || fftwf_plan_many_dft_r2c == NULL ||
     fftwf_plan_many_dft_c2r == NULL || fftwf_destroy_plan == NULL || fftwf_execute_dft_r2c == NULL || fftwf_execute_dft_c2r == NULL)
-    env->ThrowError("FFT3DFilter: FFTW3.DLL not found. Please put in PATH or use LoadDll() plugin");
+    env->ThrowError("FFT3DFilter: libfftw3f-3.dll or fftw3.dll not found. Please put in PATH or use LoadDll() plugin");
 
 
   coverwidth = nox*(bw - ow) + ow;
   coverheight = noy*(bh - oh) + oh;
-  coverpitch = ((coverwidth + 7) / 8) * 8; // pitch is element-granularity. For byte pitch, multiply is by pixelsize
+  coverpitch = ((coverwidth + 7) / 8) * 8; // align to 8 elements. Pitch is element-granularity. For byte pitch, multiply is by pixelsize
   coverbuf = (BYTE*)malloc(coverheight*coverpitch*pixelsize);
 
   int insize = bw*bh*nox*noy;
