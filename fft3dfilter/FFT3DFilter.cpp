@@ -414,8 +414,8 @@ class FFT3DFilter : public GenericVideoFilter {
   float *wsharpen;
   float *wdehalo;
 
-  int nlast;// frame number at last step
-  int btcurlast;  //v1.7
+  int nlast;// frame number at last step, PF: multithread warning, used for cacheing when sequential access detected
+  int btcurlast;  //v1.7 to prevent multiple Pattern2Dto3D for the same btcurrent. btcurrent can change and may differ from bt for e.g. first/last frame
 
   fftwf_complex *outLast, *covar, *covarProcess;
   float sigmaSquaredNoiseNormed;
@@ -2813,7 +2813,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
   {
     sigmaSquaredNoiseNormed = btcur*sigma*sigma / norm; // normalized variation=sigma^2
 
-    if (btcur != btcurlast)
+    if (btcur != btcurlast) // !! global state, multithreading warning
       Pattern2Dto3D(pattern2d, bh, outwidth, outpitch, (float)btcur, pattern3d);
 
     // get power spectral density (abs quadrat) for every block and apply filter
