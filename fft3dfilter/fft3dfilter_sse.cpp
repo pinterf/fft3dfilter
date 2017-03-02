@@ -23,6 +23,7 @@
 #include <avs/config.h> // x64
 #include "fftwlite.h"
 #include <emmintrin.h>
+#include <stdint.h>
 
 typedef struct xmmregstruct
 {
@@ -34,6 +35,91 @@ typedef struct xmmregstruct
 
 // since v1.7 we use outpitch instead of outwidth
 
+// bt=2, degrid=0, pfactor=0
+// PF 170302 simd, SSE2 x64 C -> x64 simd: 11.37 -> 13.26
+void ApplyWiener3D2_SSE_simd(fftwf_complex *outcur, fftwf_complex *outprev,
+  int outwidth, int outpitch, int bh, int howmanyblocks,
+  float sigmaSquaredNoiseNormed, float beta)
+{
+  // return result in outprev
+
+  int totalbytes = howmanyblocks*bh*outpitch * 8;
+
+  //	for (block=0; block <howmanyblocks; block++)
+  //	{
+  //		for (h=0; h<bh; h++)  
+  //		{
+  //			for (w=0; w<outwidth; w++) 
+  //			{
+
+  __m128 lowlimit = _mm_set1_ps((beta - 1) / beta); //     (beta-1)/beta>=0
+  __m128 smallf = _mm_set1_ps(1e-15f);
+  __m128 onehalf = _mm_set1_ps(0.5f);
+  __m128 sigma = _mm_set1_ps(sigmaSquaredNoiseNormed);
+
+  __m128 xmm1, xmm2, xmm3;
+  for (int n = 0; n < totalbytes; n += 16) {
+    // take two complex numbers
+    __m128 prev = _mm_load_ps(reinterpret_cast<float *>((uint8_t *)outprev + n)); // prev real | img
+    __m128 cur = _mm_load_ps(reinterpret_cast<float *>((uint8_t *)outcur + n)); // cur real | img 
+
+    // f3d0r =  outcur[w][0] + outprev[w][0]; // real 0 (sum)
+    // f3d0i =  outcur[w][1] + outprev[w][1]; // im 0 (sum)
+    __m128 sum = _mm_add_ps(cur, prev);
+
+    // f3d1r =  outcur[w][0] - outprev[w][0]; // real 1 (dif)
+    // f3d1i =  outcur[w][1] - outprev[w][1]; // im 1 (dif)
+    __m128 diff = _mm_sub_ps(cur, prev);
+
+    // Part#1 - sum
+    xmm1 = _mm_mul_ps(sum, sum); // sumre*sumre | sumin*sumim
+    xmm3 = _mm_shuffle_ps(xmm1, xmm1, (1 + 0 + 48 + 128)); // swap re & im
+    xmm1 = _mm_add_ps(xmm1, xmm3); // sumre*sumre + sumim*sumim
+    xmm1 = _mm_add_ps(xmm1, smallf); // psd of sum = sumre*sumre + sumim*sumim + smallf
+    // psd = f3d0r*f3d0r + f3d0i*f3d0i + 1e-15f; // power spectrum density 0
+
+    xmm3 = _mm_sub_ps(xmm1, sigma); // psd - sigma
+    xmm1 = _mm_rcp_ps(xmm1); // 1/psd
+    xmm3 = _mm_mul_ps(xmm3, xmm1); // (psd-sigma)/psd
+
+    // WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+    xmm3 = _mm_max_ps(xmm3, lowlimit); // wienerfactor
+    // f3d0r *= WienerFactor; // apply filter on real part
+    // f3d0i *= WienerFactor; // apply filter on imaginary part
+    __m128 sum_res = _mm_mul_ps(sum, xmm3); // final wiener sum f3d0
+
+    // Part#2 - diff
+    xmm1 = _mm_mul_ps(diff, diff); // difre*difre | difim*difim
+    xmm3 = _mm_shuffle_ps(xmm1, xmm1, (1 + 0 + 48 + 128)); // swap re & im
+    xmm1 = _mm_add_ps(xmm1, xmm3);
+    xmm1 = _mm_add_ps(xmm1, smallf); // psd of dif
+    // psd = f3d1r*f3d1r + f3d1i*f3d1i + 1e-15f; // power spectrum density 1
+
+    xmm3 = _mm_sub_ps(xmm1, sigma); // psd - sigma
+    xmm1 = _mm_rcp_ps(xmm1); // 1 / psd
+    xmm3 = _mm_mul_ps(xmm3, xmm1); // (psd-sigma)/psd
+
+    // WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+    xmm3 = _mm_max_ps(xmm3, lowlimit); // wienerfactor
+
+    // f3d1r *= WienerFactor; // apply filter on real part
+    // f3d1i *= WienerFactor; // apply filter on imaginary part
+    __m128 diff_res = _mm_mul_ps(diff, xmm3); // final wiener dif f3d1
+
+    // Part#3 - finalize
+    // reverse dft for 2 points
+    xmm2 = _mm_add_ps(sum_res, diff_res); // filterd sum + dif
+
+    // outprev[w][0] = (f3d0r + f3d1r)*0.5f; // get real part
+    // outprev[w][1] = (f3d0i + f3d1i)*0.5f; // get imaginary part
+    xmm2 = _mm_mul_ps(xmm2, onehalf); // filterd(sum + dif)*0.5
+    _mm_store_ps(reinterpret_cast<float *>((byte *)outprev + n), xmm2);
+    // Attention! return filtered "outcur" in "outprev" to preserve "outcur" for next step
+  }
+}
+
+#if 0
+// ported to simd PF 170302
 void ApplyWiener3D2_SSE(fftwf_complex *outcur, fftwf_complex *outprev, 
 						int outwidth, int outpitch, int bh, int howmanyblocks, 
 						float sigmaSquaredNoiseNormed, float beta)
@@ -149,6 +235,7 @@ finish:			emms;
 		}
 #endif // !x64
 }
+#endif
 //-----------------------------------------------------------------------------------------
 //
 void ApplyPattern3D2_SSE(fftwf_complex *outcur, fftwf_complex *outprev, 
@@ -194,10 +281,10 @@ void ApplyPattern3D2_SSE(fftwf_complex *outcur, fftwf_complex *outprev,
 			mov edx, 0;
 align 16
 nextnumber:
-//				shr eax, 1;
+//				shr n, 1;
 				movlps xmm6, [ebx+edx];// pattern3d - two values
 				shufps xmm6, xmm6, (64 + 16 + 0 + 0) ;// 01 01 00 00 low
-//				shl eax, 1;
+//				shl n, 1;
 
 				// take two complex numbers
 				movaps xmm0, [edi+eax]; // xmm0=prev real | img
@@ -755,10 +842,10 @@ void Sharpen_SSE(fftwf_complex *outcur, int outwidth, int outpitch, int bh,
 			mov edx, 0;
 align 16
 nextnumber:
-//				shr eax, 1;
+//				shr n, 1;
 				movlps xmm6, [ebx+edx];// wsharpen - two values
 				shufps xmm6, xmm6, (64 + 16 + 0 + 0) ;// 01 01 00 00 low
-//				shl eax, 1;
+//				shl n, 1;
 
 				// take two complex numbers
 				movaps xmm1, [esi+eax]; // xmm1=cur real | img 
@@ -1387,6 +1474,7 @@ finish:			emms;
 #endif // !x64
 }
 
+// bt=3
 void ApplyWiener3D3_degrid_SSE_simd(fftwf_complex *outcur, fftwf_complex *outprev,
   fftwf_complex *outnext, int outwidth, int outpitch, int bh,
   int howmanyblocks, float sigmaSquaredNoiseNormed, float beta,
@@ -1438,7 +1526,7 @@ void ApplyWiener3D3_degrid_SSE_simd(fftwf_complex *outcur, fftwf_complex *outpre
 
       //Orig_C: float gridcorrection0_3 = gridfraction*gridsample[w][0] * 3;
       //        float gridcorrection1_3 = gridfraction*gridsample[w][1] * 3;
-      xmm3 = _mm_load_ps((float *)(pGridSample + eax)); // movaps xmm3, [ebx + eax]; // mm3=grid real | img 
+      xmm3 = _mm_load_ps((float *)(pGridSample + eax)); // movaps xmm3, [ebx + n]; // mm3=grid real | img 
       xmm7 = _mm_load1_ps(&gridfraction);
       xmm3 = _mm_mul_ps(xmm3, xmm7); // mulps xmm3, xmm7; // fraction*sample
       __m128 gridcorrection = _mm_add_ps(_mm_add_ps(xmm3, xmm3), xmm3);;
@@ -1537,7 +1625,7 @@ void ApplyWiener3D3_degrid_SSE_simd(fftwf_complex *outcur, fftwf_complex *outpre
       // outprev[w][0] = (fcr + fpr + fnr)*0.33333333333f; // get  real  part	
       // outprev[w][1] = (fci + fpi + fni)*0.33333333333f; // get imaginary part
 
-      _mm_store_ps((float *)(pOutPrev + eax), xmm4); // movaps[edi + eax], xmm4; // write output to prev array
+      _mm_store_ps((float *)(pOutPrev + eax), xmm4); // movaps[edi + n], xmm4; // write output to prev array
                                // Attention! return filtered "out" in "outprev" to preserve "out" for next step
     }
     pOutNext += ecx_bytesperblock;

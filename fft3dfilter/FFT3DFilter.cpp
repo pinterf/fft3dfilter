@@ -110,6 +110,7 @@ void ApplyKalman_3DNow(fftwf_complex *outcur, fftwf_complex *outLast, fftwf_comp
 #endif
 // SSE
 void ApplyWiener3D2_SSE(fftwf_complex *outcur, fftwf_complex *outprev, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta);
+void ApplyWiener3D2_SSE_simd(fftwf_complex *outcur, fftwf_complex *outprev, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta);
 void ApplyPattern3D2_SSE(fftwf_complex *outcur, fftwf_complex *outprev, int outwidth, int outpitch, int bh, int howmanyblocks, float * pattern3d, float beta);
 void ApplyWiener3D3_SSE(fftwf_complex *outcur, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta);
 void ApplyPattern3D3_SSE(fftwf_complex *outcur, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float *pattern3d, float beta);
@@ -156,14 +157,19 @@ void ApplyWiener2D(fftwf_complex *out, int outwidth, int outpitch, int bh, int h
 //-------------------------------------------------------------------------------------------
 void ApplyWiener3D2(fftwf_complex *outcur, fftwf_complex *outprev, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta, int CPUFlags)
 {
+  /*
 #ifndef X86_64
   if (CPUFlags & CPUF_3DNOW_EXT)
     ApplyWiener3D2_3DNow(outcur, outprev, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta);
-  else 
+  else
   if (CPUFlags & CPUF_SSE)
     ApplyWiener3D2_SSE(outcur, outprev, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta);
   else
 #endif
+  */
+  if (CPUFlags & CPUF_SSE2) // 170302 simd, SSE2
+    ApplyWiener3D2_SSE_simd(outcur, outprev, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta);
+  else
     ApplyWiener3D2_C(outcur, outprev, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta);
 }
 //-------------------------------------------------------------------------------------------
@@ -2135,7 +2141,13 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
   float *inp = inp0;
   int xoffset = bh*bw - (bw - ow);
   int yoffset = bw*nox*bh - bw*(bh - oh); // vertical offset of same block (overlap)
-
+#if 0
+  // PF
+  // debug to check what happens when planeBase is not param, but set to fix 0
+  // optimizer can rule one one addition -> faster
+  // consider using template for this
+  planeBase_i = 0; // debug;!+hj4l
+#endif
   typedef std::conditional<sizeof(pixel_t) == 4, float, int>::type cast_t;
 
   cast_t planeBase = sizeof(pixel_t) == 4 ? cast_t(planeBase_f) : cast_t(planeBase_i); // anti warning
