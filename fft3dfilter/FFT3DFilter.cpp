@@ -108,6 +108,7 @@ void ApplyWiener3D3_3DNow(fftwf_complex *outcur, fftwf_complex *outprev, fftwf_c
 void ApplyWiener3D4_3DNow(fftwf_complex *outcur, fftwf_complex *outprev2, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta);
 void ApplyKalman_3DNow(fftwf_complex *outcur, fftwf_complex *outLast, fftwf_complex *covar, fftwf_complex *covarProcess, int outwidth, int outpitch, int bh, int howmanyblocks, float covarNoiseNormed, float kratio2);
 #endif
+void ApplyKalman_SSE2_simd(fftwf_complex *outcur, fftwf_complex *outLast, fftwf_complex *covar, fftwf_complex *covarProcess, int outwidth, int outpitch, int bh, int howmanyblocks, float covarNoiseNormed, float kratio2);
 // SSE
 void ApplyWiener3D2_SSE(fftwf_complex *outcur, fftwf_complex *outprev, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta);
 void ApplyWiener3D2_SSE_simd(fftwf_complex *outcur, fftwf_complex *outprev, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta);
@@ -277,11 +278,11 @@ void ApplyKalmanPattern(fftwf_complex *outcur, fftwf_complex *outLast, fftwf_com
 //-------------------------------------------------------------------------------------------
 void ApplyKalman(fftwf_complex *outcur, fftwf_complex *outLast, fftwf_complex *covar, fftwf_complex *covarProcess, int outwidth, int outpitch, int bh, int howmanyblocks, float covarNoiseNormed, float kratio2, int CPUFlags)
 {
-#ifndef X86_64
-  if (CPUFlags & CPUF_3DNOW_EXT)
-    ApplyKalman_3DNow(outcur, outLast, covar, covarProcess, outwidth, outpitch, bh, howmanyblocks, covarNoiseNormed, kratio2);
+  // bt=0
+  // moved to SSE2 simd (though only 8 bytes internal working mode)
+  if (CPUFlags & CPUF_SSE2)
+    ApplyKalman_SSE2_simd(outcur, outLast, covar, covarProcess, outwidth, outpitch, bh, howmanyblocks, covarNoiseNormed, kratio2);
   else
-#endif
     ApplyKalman_C(outcur, outLast, covar, covarProcess, outwidth, outpitch, bh, howmanyblocks, covarNoiseNormed, kratio2);
 }
 //-------------------------------------------------------------------------------------------
@@ -3221,6 +3222,11 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
     {
       return src; // first frame  not processed
     }
+    /* PF 170302 comment: accumulated error?
+      orig = BlankClip(...)
+      new = orig.FFT3DFilter(sigma = 3, plane = 4, bt = 0, degrid = 0)
+      Subtract(orig,new).Levels(120, 1, 255 - 120, 0, 255, coring = false)
+    */
 
     // put source bytes to float array of overlapped blocks
     // cur frame
