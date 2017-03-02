@@ -516,7 +516,7 @@ void ApplyKalman_3DNow( fftwf_complex *outcur, fftwf_complex *outLast,
 			punpckldq mm6, mm6; // covarNoiseNormed
 			movd mm7, kratio2;
 			punpckldq mm7, mm7; // kratio2 
-			pfmul mm7, mm6; // mm7=sigmaSquaredMotionNormed
+			pfmul mm7, mm6; // mm7=sigmaSquaredMotionNormed  // 3DNow only! Not MMX!
 			mov eax, 0;
 			push ebp; // will use register for cmp
 align 16
