@@ -35,6 +35,124 @@ typedef struct xmmregstruct
 
 // since v1.7 we use outpitch instead of outwidth
 
+// bt=0
+// PF 170302 simd
+// x64 C -> simd: 10.24 -> 11.41 fps
+// x86 C -> simd:  8.38 ->  9.86 fps
+void ApplyKalman_SSE2_simd(fftwf_complex *outcur, fftwf_complex *outLast,
+  fftwf_complex *covar, fftwf_complex *covarProcess,
+  int outwidth, int outpitch, int bh, int howmanyblocks,
+  float covarNoiseNormed, float kratio2)
+{
+  // return result in outLast
+  int totalbytes = howmanyblocks*bh*outpitch * 8;
+
+  __m128 xmm0, xmm2, xmm3, xmm4, xmm5;
+  __m128 covarNoiseNormed_vect = _mm_set1_ps(covarNoiseNormed);
+
+  __m128 sigmaSquaredMotionNormed = _mm_mul_ps(covarNoiseNormed_vect, _mm_set1_ps(kratio2));
+
+  for (int eax = 0; eax < totalbytes; eax += 8) {
+    __m128 cur = _mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i *>((uint8_t *)outcur + eax))); // cur real | img 
+    __m128 last = _mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i *>((uint8_t *)outLast + eax))); // last real | img
+                                                                                                                       
+    // use one of possible method for motion detection:
+    // if ( (outcur[w][0]-outLast[w][0])*(outcur[w][0]-outLast[w][0]) > sigmaSquaredMotionNormed ||
+    //      (outcur[w][1]-outLast[w][1])*(outcur[w][1]-outLast[w][1]) > sigmaSquaredMotionNormed )
+
+    xmm2 = _mm_sub_ps(cur, last); // cur-last
+    xmm2 = _mm_mul_ps(xmm2, xmm2); // (cur-last)*(cur-last) // - fixed bug in v1.5.2
+
+    // 64 bit warning! This is why we don't use 128 bits for 2 complex numbers, only one
+    xmm2 = _mm_cmpgt_ps(xmm2, sigmaSquaredMotionNormed); // motion?
+    xmm4 = xmm2;
+    xmm2 = _mm_shuffle_ps(xmm2, xmm2, _MM_SHUFFLE(2, 3, 0, 1)); // swap re & im comparison results
+    xmm2 = _mm_or_ps(xmm2, xmm4); // or'd  comparison result for float#0 and float#1
+    // we have to check the lower 32 bits
+    int motion = _mm_cvtsi128_si32(_mm_castps_si128(xmm2));
+
+    if (motion != 0) {
+      //bad
+      // big pixel variation due to motion etc
+      // reset filter
+      // outLast[w][0] = outcur[w][0];
+      // outLast[w][1] = outcur[w][1];
+      _mm_storel_epi64(reinterpret_cast<__m128i *>((byte *)outLast + eax), _mm_castps_si128(cur)); // return result in outLast
+
+      // covar[w][0] = covarNoiseNormed; 
+      // covar[w][1] = covarNoiseNormed; 
+      // covarProcess[w][0] = covarNoiseNormed; 
+      // covarProcess[w][1] = covarNoiseNormed; 
+      _mm_storel_epi64(reinterpret_cast<__m128i *>((byte *)covar + eax), _mm_castps_si128(covarNoiseNormed_vect));
+      _mm_storel_epi64(reinterpret_cast<__m128i *>((byte *)covarProcess + eax), _mm_castps_si128(covarNoiseNormed_vect));
+      continue;
+    }
+    /*
+    // small variation
+    sumre = (covar[w][0] + covarProcess[w][0]);
+    sumim = (covar[w][1] + covarProcess[w][1]);
+    // real gain, imagine gain
+    GainRe = sumre / (sumre + covarNoiseNormed);
+    GainIm = sumim / (sumim + covarNoiseNormed);
+    // update process
+    covarProcess[w][0] = (GainRe*GainRe*covarNoiseNormed);
+    covarProcess[w][1] = (GainIm*GainIm*covarNoiseNormed);
+    // update variation
+    covar[w][0] = (1 - GainRe)*sumre;
+    covar[w][1] = (1 - GainIm)*sumim;
+    outLast[w][0] = (GainRe*outcur[w][0] + (1 - GainRe)*outLast[w][0]);
+    outLast[w][1] = (GainIm*outcur[w][1] + (1 - GainIm)*outLast[w][1]);
+    */
+    __m128 covar_xmm2 = _mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i *>((uint8_t *)covar + eax))); // covar
+    __m128 covarProcess_xmm3 = _mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<const __m128i *>((uint8_t *)covarProcess + eax))); // covarProcess
+
+    // useful sum
+    // sumre = (covar[w][0] + covarProcess[w][0]);
+    // sumim = (covar[w][1] + covarProcess[w][1]);
+    __m128 sum_xmm4 = _mm_add_ps(covar_xmm2, covarProcess_xmm3); // sum = (covar +covarProcess)
+
+    // real gain, imagine gain
+    xmm5 = _mm_add_ps(sum_xmm4, covarNoiseNormed_vect); // sum + covarnoise
+    // xmm5.low_ps = Re
+    xmm3 = _mm_shuffle_ps(xmm5, xmm5, _MM_SHUFFLE(2, 3, 0, 1)); // swap re & im
+    // xmm3.low_ps = Im
+
+    // really _mm_scp_ss would be enough,
+    // GainRe = sumre/(sumre + covarNoiseNormed);
+    xmm5 = _mm_rcp_ps(xmm5); // 1/(sumRe + covarnoise)
+    // GainIm = sumim/(sumim + covarNoiseNormed);
+    xmm3 = _mm_rcp_ps(xmm3); // 1/(sumIm + covarnoise)
+    // combine re im
+    xmm5 = _mm_unpacklo_ps(xmm5, xmm3);
+
+    __m128 gain_xmm5 = _mm_mul_ps(xmm5, sum_xmm4); // gain = 1/(sum + covarnoise) * sum
+
+    // update process
+    xmm3 = _mm_mul_ps(gain_xmm5, gain_xmm5); // gain*gain
+    xmm3 = _mm_mul_ps(xmm3, covarNoiseNormed_vect); // gain*gain*covarNoiseNormed
+    // covarProcess[w][0] = (GainRe*GainRe*covarNoiseNormed);
+    // covarProcess[w][1] = (GainIm*GainIm*covarNoiseNormed);
+    _mm_storel_epi64(reinterpret_cast<__m128i *>((byte *)covarProcess + eax), _mm_castps_si128(xmm3));
+
+    // update variation
+    xmm3 = _mm_mul_ps(gain_xmm5, sum_xmm4); // gain*sum
+    xmm3 = _mm_sub_ps(sum_xmm4, xmm3); // sum - gain*sum
+    // covar[w][0] =  (1-GainRe)*sumre ; = sumre - GainRe*sumre
+    // covar[w][1] =  (1-GainIm)*sumim ;
+    _mm_storel_epi64(reinterpret_cast<__m128i *>((byte *)covar + eax), _mm_castps_si128(xmm3));
+
+    // make output
+    xmm0 = _mm_sub_ps(cur, last); // cur-last
+    xmm0 = _mm_mul_ps(xmm0, gain_xmm5); // (cur-last)*gain
+    xmm0 = _mm_add_ps(xmm0, last); // (cur-last)*gain + last
+    // outLast[w][0] = ( GainRe*outcur[w][0] + (1 - GainRe)*outLast[w][0] ); = GainRe*(outcur[w][0]-outLast[w][0]) + outLast[w][0]
+    // outLast[w][1] = ( GainIm*outcur[w][1] + (1 - GainIm)*outLast[w][1] );
+    //return filtered result in outLast
+    _mm_storel_epi64(reinterpret_cast<__m128i *>((byte *)outLast + eax), _mm_castps_si128(xmm0));
+  }
+}
+
+
 // bt=2, degrid=0, pfactor=0
 // PF 170302 simd, SSE2 x64 C -> x64 simd: 11.37 -> 13.26
 void ApplyWiener3D2_SSE_simd(fftwf_complex *outcur, fftwf_complex *outprev,
@@ -468,7 +586,9 @@ nextnumber:
 //				pswapd mm6, mm6; // swap real and img,    img | real
 //				punpckldq mm5, mm6;  // use low dwords:   real next-prev | img prev-next
 //				pswapd mm5, mm5 ; // mm5 = im(prev-next) | re(next-prev)
-
+        // changed order: 
+        // mmx: mm5 is first unpacked then swapped
+        // sse2: xmm5 is first shuffled then unpacked
 				shufps xmm5, xmm5, (128 + 0 + 8 + 0); // 10 00 10 00 low // 2 0 2 0 low //low Re(next-prev) | Re2(next-prev) || same second
 				shufps xmm6, xmm6, (192 +16 + 12 + 1);// 11 01 11 01 low // 3 1 3 1 low //low Im(prev-next) | Im2(prev-next) || same second
 				unpcklps xmm6, xmm5;// low Im(prev-next) | Re(next-prev) || Im2(prev-next) | Re2(next-prev)  
@@ -1511,7 +1631,7 @@ void ApplyWiener3D3_degrid_SSE_simd(fftwf_complex *outcur, fftwf_complex *outpre
   byte *pOutPrev = (byte *)outprev; //  mov edi, outprev;
   byte *pOutNext = (byte *)outnext; //  mov edx, outnext;
 
-  __m128 xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6, xmm7;
+  __m128 xmm1, xmm2, xmm3, xmm4, xmm5, xmm6, xmm7;
 
   for (int block = 0; block < howmanyblocks; block++) { // for (block=0; block <howmanyblocks; block++)
     // Orig_C: float gridfraction = degrid*outcur[0][0] / gridsample[0][0];
@@ -2455,3 +2575,4 @@ finish:			emms;
 		}
 #endif
 }
+
