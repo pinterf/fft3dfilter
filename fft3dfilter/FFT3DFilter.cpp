@@ -99,6 +99,7 @@
 #include <emmintrin.h>
 #include <mmintrin.h> // _mm_empty
 #include <algorithm>
+#include <atomic>
 
 // declarations of filtering functions:
 #ifndef X86_64
@@ -477,6 +478,9 @@ class FFT3DFilter : public GenericVideoFilter {
   int * cachewhat;//v1.8
   int cachesize;//v1.8
 
+  int _instance_id; // debug unique id
+  std::atomic<bool> reentrancy_check;
+
 //	float *fullwinan; // disabled in v2.2.1, return to v1.9.2 method
 //	float *fullwinsyn;
 
@@ -549,6 +553,10 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   //  where the following variables gets defined:
   //   PClip child;   // Contains the source clip.
   //   VideoInfo vi;  // Contains videoinfo on the source clip.
+
+  static int id = 0; _instance_id = id++;
+  reentrancy_check = false;
+  _RPT1(0, "FFT3DFilter.Create instance_id=%d\n", _instance_id);
 
   int i, j;
 
@@ -2705,6 +2713,12 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
   //	wsprintf(debugbuf,"FFT3DFilter: n=%d \n", n);
   //	OutputDebugString(debugbuf);
   //	fftwf_complex * tmpoutrez, *tmpoutnext, *tmpoutprev, *tmpoutnext2; // store pointers
+  _RPT2(0, "FFT3DFilter GetFrame, frame=%d instance_id=%d\n", n, _instance_id);
+  if (reentrancy_check) {
+    _RPT2(0, "FFT3DFilter GetFrame, Reentrant call detected! Frame=%d instance_id=%d\n", n, _instance_id);
+    env->ThrowError("FFT3DFilter: cannot work in reentrant multithread mode!");
+  }
+  reentrancy_check = true;
 
 #ifndef X86_64
   _mm_empty(); // _asm emms;
@@ -2795,11 +2809,15 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
     wsprintf(messagebuf, " frame=%d, px=%d, py=%d, sigma=%d.%d", n, pxf, pyf, psigmaint, psigmadec);
     DrawString(dst, vi, 0, 0, messagebuf);
 
+    _RPT2(0, "FFT3DFilter GetFrame END, frame=%d instance_id=%d\n", n, _instance_id);
+    reentrancy_check = false;
     return dst; // return pattern frame to show
   }
 
+  _RPT2(0, "FFT3DFilter child GetFrame, frame=%d instance_id=%d\n", n, _instance_id);
   // Request frame 'n' from the child (source) clip.
   src = child->GetFrame(n, env);
+  _RPT2(0, "FFT3DFilter child GetFrame END, frame=%d instance_id=%d\n", n, _instance_id);
   dst = env->NewVideoFrame(vi);
 
   /*
@@ -2887,7 +2905,9 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       outprev = cachefft[cachecur - 1];
       if (cachewhat[cachecur - 1] != n - 1)
       {
+        _RPT2(0, "FFT3DFilter child-1 GetFrame, frame=%d instance_id=%d\n", n-1, _instance_id);
         prev = child->GetFrame(n - 1, env);
+        _RPT2(0, "FFT3DFilter child-1 GetFrame END, frame=%d instance_id=%d\n", n - 1, _instance_id);
         FramePlaneToCoverbuf(plane, prev, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
       }
       if (cachewhat[cachecur - 1] != n - 1)
@@ -2952,7 +2972,9 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       if (cachewhat[cachecur - 1] != n - 1)
       {
         // calculate prev
+        _RPT2(0, "FFT3DFilter child-1 GetFrame, frame=%d instance_id=%d\n", n - 1, _instance_id);
         prev = child->GetFrame(n - 1, env);
+        _RPT2(0, "FFT3DFilter child-1 GetFrame END, frame=%d instance_id=%d\n", n - 1, _instance_id);
         FramePlaneToCoverbuf(plane, prev, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
       }
       if (cachewhat[cachecur - 1] != n - 1)
@@ -2979,7 +3001,9 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       outnext = cachefft[cachecur + 1];
       if (cachewhat[cachecur + 1] != n + 1)
       {
+        _RPT2(0, "FFT3DFilter child+1 GetFrame, frame=%d instance_id=%d\n", n + 1, _instance_id);
         next = child->GetFrame(n + 1, env);
+        _RPT2(0, "FFT3DFilter child+1 GetFrame END, frame=%d instance_id=%d\n", n + 1, _instance_id);
         FramePlaneToCoverbuf(plane, next, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
       }
       if (cachewhat[cachecur + 1] != n + 1)
@@ -3031,7 +3055,9 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       if (cachewhat[cachecur - 2] != n - 2)
       {
         // calculate prev2
+        _RPT2(0, "FFT3DFilter child-2 GetFrame, frame=%d instance_id=%d\n", n - 2, _instance_id);
         prev2 = child->GetFrame(n - 2, env);
+        _RPT2(0, "FFT3DFilter child-2 GetFrame END, frame=%d instance_id=%d\n", n - 2, _instance_id);
         FramePlaneToCoverbuf(plane, prev2, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
       }
       if (cachewhat[cachecur - 2] != n - 2)
@@ -3058,7 +3084,9 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       outprev = cachefft[cachecur - 1];
       if (cachewhat[cachecur - 1] != n - 1)
       {
+        _RPT2(0, "FFT3DFilter child-1 GetFrame, frame=%d instance_id=%d\n", n - 1, _instance_id);
         prev = child->GetFrame(n - 1, env);
+        _RPT2(0, "FFT3DFilter child-1 GetFrame END, frame=%d instance_id=%d\n", n - 1, _instance_id);
         FramePlaneToCoverbuf(plane, prev, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
       }
       if (cachewhat[cachecur - 1] != n - 1)
@@ -3072,7 +3100,9 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       outnext = cachefft[cachecur + 1];
       if (cachewhat[cachecur + 1] != n + 1)
       {
+        _RPT2(0, "FFT3DFilter child+1 GetFrame, frame=%d instance_id=%d\n", n + 1, _instance_id);
         next = child->GetFrame(n + 1, env);
+        _RPT2(0, "FFT3DFilter child+1 GetFrame END, frame=%d instance_id=%d\n", n + 1, _instance_id);
         FramePlaneToCoverbuf(plane, next, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
       }
       if (cachewhat[cachecur + 1] != n + 1)
@@ -3220,6 +3250,8 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
 
     if (n == 0)
     {
+      _RPT2(0, "FFT3DFilter GetFrame END, frame=%d instance_id=%d\n", n, _instance_id);
+      reentrancy_check = false;
       return src; // first frame  not processed
     }
     /* PF 170302 comment: accumulated error?
@@ -3281,6 +3313,8 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
   btcurlast = btcur;
 
   // As we now are finished processing the image, we return the destination image.
+  _RPT2(0, "FFT3DFilter GetFrame END, frame=%d instance_id=%d\n", n, _instance_id);
+  reentrancy_check = false;
   return dst;
 }
 
@@ -3339,6 +3373,8 @@ class FFT3DFilterMulti : public GenericVideoFilter {
   // This name is only used internally, and does not affect the name of your filter or similar.
   // This filter extends GenericVideoFilter, which incorporates basic functionality.
   // All functions present in the filter must also be present here.
+  int _instance_id; // debug unique id
+  std::atomic<bool> reentrancy_check;
 
   PClip filtered;
   PClip YClip, UClip, VClip;
@@ -3394,6 +3430,10 @@ FFT3DFilterMulti::FFT3DFilterMulti(PClip _child, float _sigma, float _beta, int 
   float _dehalo, float _hr, float _ht, int _ncpu, IScriptEnvironment* env) :
 
   GenericVideoFilter(_child) {
+
+  static int id = 0; _instance_id = id++;
+  reentrancy_check = false;
+  _RPT1(0, "FFT3DFilterMulti.Create instance_id=%d\n", _instance_id);
 
   pixelsize = vi.ComponentSize();
   bits_per_pixel = vi.BitsPerComponent();
@@ -3500,14 +3540,23 @@ FFT3DFilterMulti::~FFT3DFilterMulti() {
 PVideoFrame __stdcall FFT3DFilterMulti::GetFrame(int n, IScriptEnvironment* env) {
   // This is the implementation of the GetFrame function.
   // See the header definition for further info.
+  _RPT2(0, "FFT3DFilterMulti GetFrame, frame=%d instance_id=%d\n", n, _instance_id);
+  if (reentrancy_check) {
+    _RPT2(0, "FFT3DFilterMulti GetFrame, Reentrant call detected! Frame=%d instance_id=%d\n", n, _instance_id);
+    env->ThrowError("FFT3DFilterMulti: cannot work in reentrant multithread mode!");
+  }
+  reentrancy_check = true;
+
   PVideoFrame dst;
   if (multiplane < 3)
     dst = filtered->GetFrame(n, env);
   else
   {
+    _RPT2(0, "FFT3DFilterMulti GetFrame, before fY Frame=%d instance_id=%d\n", n, _instance_id);
     PVideoFrame fY = YClip->GetFrame(n, env);
     PVideoFrame fU = UClip->GetFrame(n, env);
     PVideoFrame fV = VClip->GetFrame(n, env);
+    _RPT2(0, "FFT3DFilterMulti GetFrame, have all fY, fU, fV Frame=%d instance_id=%d\n", n, _instance_id);
     dst = env->NewVideoFrame(vi);
     if (vi.IsPlanar())
     {
@@ -3548,6 +3597,7 @@ PVideoFrame __stdcall FFT3DFilterMulti::GetFrame(int n, IScriptEnvironment* env)
     }
 
   }
+  reentrancy_check = false;
   return dst;
 }
 
