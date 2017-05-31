@@ -595,6 +595,34 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
 
   if (bt < -1 || bt >5) env->ThrowError("FFT3DFilter: bt must be -1(Sharpen), 0(Kalman), 1,2,3,4,5(Wiener)");
 
+/*
+    (Parameter bt = 1) 
+      2D(spatial) Wiener filter for spectrum data.Use current frame data only.
+      Reduce weak frequencies(with small power spectral density) by optimal Wiener filter with some 
+      given noise value. Sharpening and denoising are simultaneous in this mode.
+    (Parameter bt = 2) 
+      3D Wiener filter for spectrum data.
+      Add third dimension to FFT by using previous and current frame data.Reduce weak frequencies
+      (with small power spectral density) by optimal Wiener filter with some given noise value.
+    (Parameter bt = 3) 
+      Also 3D Wiener filter for spectrum data with previous, current and next frame data.
+    (Parameter bt = 4) 
+      Also 3D Wiener filter for spectrum data with two previous, current and next frame data.
+    (Parameter bt = 5) 
+      Also 3D Wiener filter for spectrum data with two previous, current and two next frames data.
+    (Parameter bt = 0) 
+      Temporal Kalman filter for spectrum data.
+      Use all previous frames data to get estimation of cleaned current data with optimal recursive 
+      data process algorithm.
+      The filter starts work with small(= 1) gain(degree of noise reducing), and than gradually(in frames sequence) increases the gain 
+      if inter - frame local spectrum(noise) variation is small.
+      So, Kalman filter can provide stronger noise reduction than Wiener filter.
+      The Kalman filter gain is limited by some given noise value.
+      The local gain(and filter work) is reset to 1 when local variation exceeds the given threshold
+      (due to motion, scene change, etc).
+      So, the Kalman filter output is history - dependent(on frame taken as a start filtered frame).
+*/
+
   // plane: 0 - luma(Y), 1 - chroma U, 2 - chroma V
   // multiplanes are handled in FFT3DFilterMulti constructor: 3 - chroma planes U and V, 4 - both luma and chroma(default = 0)
   if (vi.IsPlanar()) // also for grey
