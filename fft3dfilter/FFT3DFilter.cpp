@@ -148,6 +148,7 @@ void ApplyWiener3D3_degrid_SSE(fftwf_complex *outcur, fftwf_complex *outprev, ff
 void ApplyWiener3D3_degrid_SSE_simd(fftwf_complex *outcur, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta, float degrid, fftwf_complex *gridsample);
 void ApplyPattern3D3_degrid_SSE(fftwf_complex *out, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float *pattern3d, float beta, float degrid, fftwf_complex *gridsample);
 void Sharpen_degrid_SSE(fftwf_complex *outcur, int outwidth, int outpitch, int bh, int howmanyblocks, float sharpen, float sigmaSquaredSharpenMin, float sigmaSquaredSharpenMax, float *wsharpen, float degrid, fftwf_complex *gridsample, float dehalo, float *wdehalo, float ht2n);
+void Sharpen_degrid_SSE_simd(fftwf_complex *outcur, int outwidth, int outpitch, int bh, int howmanyblocks, float sharpen, float sigmaSquaredSharpenMin, float sigmaSquaredSharpenMax, float *wsharpen, float degrid, fftwf_complex *gridsample, float dehalo, float *wdehalo, float ht2n);
 void ApplyWiener3D4_degrid_SSE(fftwf_complex *outcur, fftwf_complex *outprev2, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta, float degrid, fftwf_complex *gridsample);
 void ApplyPattern3D4_degrid_SSE(fftwf_complex *outcur, fftwf_complex *outprev2, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float *pattern3d, float beta, float degrid, fftwf_complex *gridsample);
 //-------------------------------------------------------------------------------------------
@@ -299,11 +300,16 @@ void Sharpen(fftwf_complex *outcur, int outwidth, int outpitch, int bh, int howm
 //-------------------------------------------------------------------------------------------
 void Sharpen_degrid(fftwf_complex *outcur, int outwidth, int outpitch, int bh, int howmanyblocks, float sharpen, float sigmaSquaredSharpenMin, float sigmaSquaredSharpenMax, float *wsharpen, float degrid, fftwf_complex *gridsample, float dehalo, float *wdehalo, float ht2n, int CPUFlags)
 {
+  if ((CPUFlags & CPUF_SSE2))
+    Sharpen_degrid_SSE_simd(outcur, outwidth, outpitch, bh, howmanyblocks, sharpen, sigmaSquaredSharpenMin, sigmaSquaredSharpenMax, wsharpen, degrid, gridsample, dehalo, wdehalo, ht2n);
+  else
+/* implemented in simd intrinsics
 #ifndef X86_64
   if ((CPUFlags & CPUF_SSE))
     Sharpen_degrid_SSE(outcur, outwidth, outpitch, bh, howmanyblocks, sharpen, sigmaSquaredSharpenMin, sigmaSquaredSharpenMax, wsharpen, degrid, gridsample, dehalo, wdehalo, ht2n);
   else
 #endif
+*/
     Sharpen_degrid_C(outcur, outwidth, outpitch, bh, howmanyblocks, sharpen, sigmaSquaredSharpenMin, sigmaSquaredSharpenMax, wsharpen, degrid, gridsample, dehalo, wdehalo, ht2n);
 }
 //-------------------------------------------------------------------------------------------
