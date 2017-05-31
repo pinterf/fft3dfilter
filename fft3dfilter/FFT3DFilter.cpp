@@ -523,7 +523,7 @@ public:
 
   // Auto register AVS+ mode: serialized
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    return cachehints == CACHE_GET_MTMODE ? MT_SERIALIZED : 0;
+    return cachehints == CACHE_GET_MTMODE ? (bt==0 ? MT_SERIALIZED : MT_MULTI_INSTANCE) : 0;
   }
 
 };
@@ -597,13 +597,14 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
 
 /*
     (Parameter bt = 1) 
-      2D(spatial) Wiener filter for spectrum data.Use current frame data only.
+      2D(spatial) Wiener filter for spectrum data. Use current frame data only.
       Reduce weak frequencies(with small power spectral density) by optimal Wiener filter with some 
       given noise value. Sharpening and denoising are simultaneous in this mode.
     (Parameter bt = 2) 
       3D Wiener filter for spectrum data.
-      Add third dimension to FFT by using previous and current frame data.Reduce weak frequencies
-      (with small power spectral density) by optimal Wiener filter with some given noise value.
+      Add third dimension to FFT by using previous and current frame data. 
+      Reduce weak frequencies (with small power spectral density) by optimal Wiener filter with some 
+      given noise value.
     (Parameter bt = 3) 
       Also 3D Wiener filter for spectrum data with previous, current and next frame data.
     (Parameter bt = 4) 
@@ -621,6 +622,8 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
       The local gain(and filter work) is reset to 1 when local variation exceeds the given threshold
       (due to motion, scene change, etc).
       So, the Kalman filter output is history - dependent(on frame taken as a start filtered frame).
+
+      PF: bt==0 have to be MT_SERIALIZED because it maintains internal history
 */
 
   // plane: 0 - luma(Y), 1 - chroma U, 2 - chroma V
