@@ -2675,7 +2675,7 @@ void CopyFrame(PVideoFrame &src, PVideoFrame &dst, VideoInfo vi, int planeskip, 
   // greyscale is planar as well
   if (vi.IsPlanar()) // copy all planes besides given
   {
-    for (plane = 0; plane < (vi.IsY() ? 1 : 3); plane++)
+    for (plane = 0; plane < vi.NumComponents(); plane++)
     {
       if (plane != planeskip)
       {
@@ -3598,7 +3598,7 @@ PVideoFrame __stdcall FFT3DFilterMulti::GetFrame(int n, IScriptEnvironment* env)
       env->BitBlt(dst->GetWritePtr(PLANAR_V), dst->GetPitch(PLANAR_V), fV->GetReadPtr(PLANAR_V),
         fV->GetPitch(PLANAR_V), fV->GetRowSize(PLANAR_V), fV->GetHeight(PLANAR_V));
     }
-    else if (vi.IsY8())
+    else if (vi.IsY())
     {
       env->BitBlt(dst->GetWritePtr(PLANAR_Y), dst->GetPitch(PLANAR_Y), fY->GetReadPtr(PLANAR_Y),
         fY->GetPitch(PLANAR_Y), fY->GetRowSize(PLANAR_Y), fY->GetHeight(PLANAR_Y));
