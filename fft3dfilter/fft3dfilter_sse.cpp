@@ -1364,9 +1364,9 @@ void Sharpen_degrid_SSE(fftwf_complex *outcur, int outwidth, int outpitch, int b
 #endif
 
 // true-true:
-// bt=3 sharpen=1 degrid=1
+// bt=3 sharpen=1 dehalo=1
 //       new       old
-// x86  14.05      13.91
+// x86  14.05      13.91 fps
 // x64  14.60      12.91
 // 170531 moved to simd
 template<bool do_sharpen, bool do_dehalo>

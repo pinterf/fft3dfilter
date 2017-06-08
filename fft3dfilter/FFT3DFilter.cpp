@@ -84,8 +84,20 @@
                     - pre-check: if plane to process for greyscale is U and/or V return original clip
                     - auto register MT mode for avs+: MT_SERIALIZED
 
+  Version 2.4     June 01, 2017 pinterf
+                    - intrinsics bt=0: void ApplyKalman_SSE2_simd(fftwf_complex *outcur, fftwf_complex *outLast,
+                    - intrinsics bt=2, degrid=0, pfactor=0: void ApplyWiener3D2_SSE_simd(fftwf_complex *outcur, fftwf_complex *outprev,// bt=2, degrid=0, pfactor=0
+                    - intrinsics bt=3 sharpen=0/1 dehalo=0/1: void do_Sharpen_degrid_SSE_simd(fftwf_complex *outcur, int outwidth, int outpitch, int bh,
+                    - intrinsics bt=3: void ApplyWiener3D3_degrid_SSE_simd(fftwf_complex *outcur, fftwf_complex *outprev, ...
+                    - Adaptive MT: MT_SERIALIZED for bt==0 (temporal), MT_MULTI_INSTANCE for others
+                    - Copy Alpha plane if exists
+                    - reentrancy checks against bad multithreading usage
+
+
+
+
 */
-#define VERSION_NUMBER 2.3
+#define VERSION_NUMBER 2.4
 
 //#include "windows.h"
 #include <avisynth.h>
@@ -3421,6 +3433,8 @@ class FFT3DFilterMulti : public GenericVideoFilter {
   int pixelsize;
   int bits_per_pixel;
 
+  int bt; // passed to FFT3DFilter, needed here for cache hints
+
 public:
   // This defines that these functions are present in your class.
   // These functions must be that same as those actually implemented.
@@ -3447,7 +3461,7 @@ public:
 
   // Auto register AVS+ mode: serialized
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    return cachehints == CACHE_GET_MTMODE ? MT_SERIALIZED : 0;
+    return cachehints == CACHE_GET_MTMODE ? (bt == 0 ? MT_SERIALIZED : MT_MULTI_INSTANCE) : 0;
   }
 
 };
@@ -3474,6 +3488,8 @@ FFT3DFilterMulti::FFT3DFilterMulti(PClip _child, float _sigma, float _beta, int 
 
   pixelsize = vi.ComponentSize();
   bits_per_pixel = vi.BitsPerComponent();
+
+  bt = _bt; // for cache hints
 
   // adaptive default: all planes for RGB
   if (_multiplane == -1) {
