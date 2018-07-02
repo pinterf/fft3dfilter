@@ -11,7 +11,7 @@
 <h1>FFT3DFilter</h1>
 
 <p>Plugin for <a href="http://www.avisynth.org">Avisynth 2.6</a> and <a href="http://avisynth.nl/index.php/AviSynth%2B">Avisynth+</a><br>
-Copyright (C)2017 v2.3: high bit depth and planar rgb support on Avisynth+ (10-16 bits and float) by pinterf<br>
+Copyright (C)2017-2018 v2.5: high bit depth and planar rgb support on Avisynth+ (10-16 bits and float) by pinterf<br>
 Based on version 2.2<br>
 Copyright (C)2017 martin53 doom9.org forum member, with kind permission of Fizick<br>
 Based on Version 2.1.1, which is
@@ -490,7 +490,7 @@ re-enabled SSE optimization for degrid=0; added SSE optimization for bt=3,-1 wit
 <li>Version 2.2   - February 25, 2015 - martin53: made AviSynth 2.6 ready, FFT3dFilter2_VersionNumber function, error msgs
 </li>
 </li>
-<li>Version 2.3   - February 21, 2017
+<li>Version 2.3   - February 21, 2017<br>
 - apply current avs+ headers<br>
 - 10-16 bits and 32 bit float colorspace support in AVS+<br>
 - Planar RGB support<br>
@@ -499,8 +499,22 @@ re-enabled SSE optimization for degrid=0; added SSE optimization for bt=3,-1 wit
 - pre-check: if plane to process for greyscale is U and/or V then returns original clip<br>
 - auto register MT mode for avs+: MT_SERIALIZED<br>
 - autoscale sigma and smin/smax parameter from 8 bit scale if colorspace is different
-
 </li>
+<li>Version 2.4   - June 08, 2017<br>
+- some inline asm (not all) ported to simd intrisics, helps speedup x64 mode, but some of them faster also on x86.<br>
+- intrinsics bt=0<br> 
+- intrinsics bt=2, degrid=0, pfactor=0<br>
+- intrinsics bt=3 sharpen=0/1 dehalo=0/1<br>
+- intrinsics bt=3<br>
+- Adaptive MT settings for Avisynth+: MT_SERIALIZED for bt==0 (temporal), MT_MULTI_INSTANCE for others<br>
+- Copy Alpha plane if exists<br>
+- reentrancy checks against bad multithreading usage<br>
+  Note: for properly operating in MT_SERIALIZED mode in Avisynth MT, please use Avs+ r2504 or better.
+</li>
+<li>Version 2.5   - July 02, 2018<br>
+- Change 32 bit float formar: U/V chroma center to zero instead of 0.5 to match Avisynth+ r2728<br>
+</li>
+
 </ul>
 
 </body>
