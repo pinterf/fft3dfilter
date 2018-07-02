@@ -2,6 +2,9 @@
 
 Change log
 ```
+FFT3DFilter v2.5 (20180702)
+  - 32bit Float YUV: Chroma center to 0.0 instead of 0.5, to match new Avisynth+ r2728-
+
 FFT3DFilter v2.4 (20170608)
   - some inline asm (not all) ported to simd intrisics, helps speedup x64 mode, but some of them faster also on x86.
   - intrinsics bt=0 
