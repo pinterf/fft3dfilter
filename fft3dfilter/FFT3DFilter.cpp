@@ -70,7 +70,7 @@
     re-enabled 3DNow and SSE optimization for degrid=0;  added SSE optimization for bt=3,-1 with degrid>0 (faster by 15%)
   Version 1.9.1 - May 10, 2006 - added SSE optimization for bt=4 with degrid>0 (faster by 30%)
   Version 1.9.2 - September 6, 2006 - added new mode bt=5
-  Version 2.0.0 - november 6, 2006 - added motion compensation mc parameter, window reorganized, multi-cpu
+  Version 2.0.0 - November 6, 2006 - added motion compensation mc parameter, window reorganized, multi-cpu
   Version 2.1.0 - January 17, 2007 - removed motion compensation mc parameter
   Version 2.1.1 - February 19, 2007 - fixed bug with bw not mod 4 (restored v1.9.2 window method)
   Version 2.2   - February 25, 2015 - martin53: made AviSynth 2.6 ready, FFT3dFilter2_VersionNumber function, error msgs
@@ -93,11 +93,11 @@
                     - Copy Alpha plane if exists
                     - reentrancy checks against bad multithreading usage
 
-
-
-
+  Version 2.5     July 02, 2018 pinterf
+                    - 32bit Float YUV: Chroma center to 0.0 instead of 0.5, to match Avisynth+ r2728-
 */
-#define VERSION_NUMBER 2.4
+
+#define VERSION_NUMBER 2.5
 
 //#include "windows.h"
 #include <avisynth.h>
@@ -2781,7 +2781,12 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
   }
   else {
     planeBase = (1 << (bits_per_pixel - 1)); // neutral chroma value
+#if FLOAT_CHROMA_IS_HALF_CENTERED
+    // for old avisynth+
     planeBase_f = 0.5f;
+#else
+    planeBase_f = 0.0f;
+#endif
   }
 
   if (pfactor != 0 && isPatternSet == false && pshow == false) // get noise pattern
@@ -2836,7 +2841,12 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
     }
     else {
       planeBase = (1 << (bits_per_pixel - 1)); // 128
+#if FLOAT_CHROMA_IS_HALF_CENTERED
+      // for old avisynth+
       planeBase_f = 0.5f;
+#else
+      planeBase_f = 0.0f;
+#endif
     }
 
     // put source bytes to float array of overlapped blocks
@@ -3021,9 +3031,9 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       if (cachewhat[cachecur - 1] != n - 1)
       {
         // calculate prev
-        _RPT2(0, "FFT3DFilter child-1 GetFrame, frame=%d instance_id=%d\n", n - 1, _instance_id);
+        //_RPT2(0, "FFT3DFilter child-1 GetFrame, frame=%d instance_id=%d\n", n - 1, _instance_id);
         prev = child->GetFrame(n - 1, env);
-        _RPT2(0, "FFT3DFilter child-1 GetFrame END, frame=%d instance_id=%d\n", n - 1, _instance_id);
+        //_RPT2(0, "FFT3DFilter child-1 GetFrame END, frame=%d instance_id=%d\n", n - 1, _instance_id);
         FramePlaneToCoverbuf(plane, prev, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
       }
       if (cachewhat[cachecur - 1] != n - 1)
@@ -3050,9 +3060,9 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       outnext = cachefft[cachecur + 1];
       if (cachewhat[cachecur + 1] != n + 1)
       {
-        _RPT2(0, "FFT3DFilter child+1 GetFrame, frame=%d instance_id=%d\n", n + 1, _instance_id);
+        //_RPT2(0, "FFT3DFilter child+1 GetFrame, frame=%d instance_id=%d\n", n + 1, _instance_id);
         next = child->GetFrame(n + 1, env);
-        _RPT2(0, "FFT3DFilter child+1 GetFrame END, frame=%d instance_id=%d\n", n + 1, _instance_id);
+        //_RPT2(0, "FFT3DFilter child+1 GetFrame END, frame=%d instance_id=%d\n", n + 1, _instance_id);
         FramePlaneToCoverbuf(plane, next, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
       }
       if (cachewhat[cachecur + 1] != n + 1)
