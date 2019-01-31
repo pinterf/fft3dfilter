@@ -465,8 +465,6 @@ class FFT3DFilter : public GenericVideoFilter {
   int mirw; // mirror width for padding
   int mirh; // mirror height for padding
 
-  bool plane_is_chroma; // for deciding pixel base value (0 for luma, 128 for chroma)
-
   float *mean;
 
   float *pwin;
@@ -2803,7 +2801,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
 
   const bool isRGB = vi.IsRGB();
 
-  plane_is_chroma = !(plane == 0 || isRGB);
+  const bool plane_is_chroma = !(plane == 0 || isRGB);
 
   if (pfactor != 0 && isPatternSet == false && pshow == false) // get noise pattern
   {
@@ -2851,12 +2849,12 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       wanyl[i] = 1;	wanyr[i] = 1;	wsynyl[i] = 1;	wsynyr[i] = 1;
     }
 
-    plane_is_chroma = !isRGB;
+    const bool plane_is_chroma2 = !isRGB;
 
     // put source bytes to float array of overlapped blocks
     // cur frame
     FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
-    FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma);
+    FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma2);
     // make FFT 2D
     fftwf_execute_dft_r2c(plan, in, outrez);
 
@@ -2865,7 +2863,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
     fftwf_execute_dft_c2r(planinv, outrez, in);
 
     // make destination frame plane from current overlaped blocks
-    FFT3DFilter::DecodeOverlapPlane(in, norm, coverbuf, coverpitch, plane_is_chroma);
+    FFT3DFilter::DecodeOverlapPlane(in, norm, coverbuf, coverpitch, plane_is_chroma2);
     CoverbufToFramePlane(plane, coverbuf, coverwidth, coverheight, coverpitch, dst, vi, mirw, mirh, interlaced, bits_per_pixel, env);
     int psigmaint = ((int)(10 * psigma)) / 10;
     int psigmadec = (int)((psigma - psigmaint) * 10);
