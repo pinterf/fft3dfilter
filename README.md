@@ -2,6 +2,9 @@
 
 Change log
 ```
+FFT3DFilter v2.6 (20190131)
+  - Fix: Proper rounding when internal 32 bit float data are converted back to integer pixel values
+
 FFT3DFilter v2.5 (20180702)
   - 32bit Float YUV: Chroma center to 0.0 instead of 0.5, to match new Avisynth+ r2728-
 
