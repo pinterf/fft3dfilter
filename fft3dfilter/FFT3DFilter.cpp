@@ -95,9 +95,13 @@
 
   Version 2.5     July 02, 2018 pinterf
                     - 32bit Float YUV: Chroma center to 0.0 instead of 0.5, to match Avisynth+ r2728-
+
+  Version 2.6     January 31, 2019 pinterf
+                    - use 0.5 rounding before converting back to the integer pixel domain.
+
 */
 
-#define VERSION_NUMBER 2.5
+#define VERSION_NUMBER 2.6
 
 //#include "windows.h"
 #include <avisynth.h>
@@ -2208,6 +2212,8 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
 #endif
   typedef std::conditional<sizeof(pixel_t) == 4, float, int>::type cast_t;
 
+  constexpr float rounder = sizeof(pixel_t) == 4 ? 0.0f : 0.5f; // 2.6
+
   cast_t planeBase = sizeof(pixel_t) == 4 ? cast_t(planeBase_f) : cast_t(planeBase_i); // anti warning
 
   cast_t max_pixel_value = sizeof(pixel_t) == 4 ? (pixel_t)1.0f : (pixel_t)((1 << bits_per_pixel) - 1);
@@ -2219,7 +2225,7 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
       inp = inp0 + h*bw;
       for (w = 0; w < bw - ow; w++)   // first half line of first block
       {
-        dstp[w] = min(cast_t(max_pixel_value), max((cast_t)0, (cast_t)(inp[w] * norm) + planeBase));   // Copy each byte from float array to dest with windows
+        dstp[w] = min(cast_t(max_pixel_value), max((cast_t)0, (cast_t)(inp[w] * norm + rounder) + planeBase));   // Copy each byte from float array to dest with windows
       }
       inp += bw - ow;
       dstp += bw - ow;
@@ -2227,20 +2233,20 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
       {
         for (w = 0; w < ow; w++)   // half line of block
         {
-          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*norm) + planeBase));   // overlapped Copy
+          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*norm + rounder) + planeBase));   // overlapped Copy
         }
         inp += xoffset + ow;
         dstp += ow;
         for (w = 0; w < bw - ow - ow; w++)   // first half line of first block
         {
-          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)(inp[w] * norm) + planeBase));   // Copy each byte from float array to dest with windows
+          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)(inp[w] * norm + rounder) + planeBase));   // Copy each byte from float array to dest with windows
         }
         inp += bw - ow - ow;
         dstp += bw - ow - ow;
       }
       for (w = 0; w < ow; w++)   // last half line of last block
       {
-        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)(inp[w] * norm) + planeBase));
+        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)(inp[w] * norm + rounder) + planeBase));
       }
       inp += ow;
       dstp += ow;
@@ -2260,7 +2266,7 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
 
       for (w = 0; w < bw - ow; w++)   // first half line of first block
       {
-        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w] * wsynyrh + inp[w + yoffset] * wsynylh)) + planeBase));   // y overlapped
+        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w] * wsynyrh + inp[w + yoffset] * wsynylh) + rounder)+ planeBase));   // y overlapped
       }
       inp += bw - ow;
       dstp += bw - ow;
@@ -2269,20 +2275,20 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
         for (w = 0; w < ow; w++)   // half overlapped line of block
         {
           dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)(((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*wsynyrh
-            + (inp[w + yoffset] * wsynxr[w] + inp[w + xoffset + yoffset] * wsynxl[w])*wsynylh)) + planeBase));   // x overlapped
+            + (inp[w + yoffset] * wsynxr[w] + inp[w + xoffset + yoffset] * wsynxl[w])*wsynylh) + rounder) + planeBase));   // x overlapped
         }
         inp += xoffset + ow;
         dstp += ow;
         for (w = 0; w < bw - ow - ow; w++)   // double minus - half non-overlapped line of block
         {
-          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w] * wsynyrh + inp[w + yoffset] * wsynylh)) + planeBase));
+          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w] * wsynyrh + inp[w + yoffset] * wsynylh) + rounder) + planeBase));
         }
         inp += bw - ow - ow;
         dstp += bw - ow - ow;
       }
       for (w = 0; w < ow; w++)   // last half line of last block
       {
-        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w] * wsynyrh + inp[w + yoffset] * wsynylh)) + planeBase));
+        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w] * wsynyrh + inp[w + yoffset] * wsynylh) + rounder) + planeBase));
       }
       inp += ow;
       dstp += ow;
@@ -2295,7 +2301,7 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
       inp = inp0 + (ihy - 1)*(yoffset + (bh - oh)*bw) + (bh)*bw + h*bw + yoffset;
       for (w = 0; w < bw - ow; w++)   // first half line of first block
       {
-        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w])*norm) + planeBase));
+        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w])*norm + rounder) + planeBase));
       }
       inp += bw - ow;
       dstp += bw - ow;
@@ -2303,20 +2309,20 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
       {
         for (w = 0; w < ow; w++)   // half overlapped line of block
         {
-          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*norm) + planeBase));   // x overlapped
+          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*norm + rounder) + planeBase));   // x overlapped
         }
         inp += xoffset + ow;
         dstp += ow;
         for (w = 0; w < bw - ow - ow; w++)   // half non-overlapped line of block
         {
-          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w])*norm) + planeBase));
+          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w])*norm + rounder) + planeBase));
         }
         inp += bw - ow - ow;
         dstp += bw - ow - ow;
       }
       for (w = 0; w < ow; w++)   // last half line of last block
       {
-        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w])*norm) + planeBase));
+        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w])*norm + rounder) + planeBase));
       }
       inp += ow;
       dstp += ow;
@@ -2333,7 +2339,7 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
       inp = inp0 + (ihy - 1)*(yoffset + (bh - oh)*bw) + (bh - oh)*bw + h*bw;
       for (w = 0; w < bw - ow; w++)   // first half line of first block
       {
-        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)(inp[w] * norm) + planeBase));
+        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)(inp[w] * norm + rounder) + planeBase));
       }
       inp += bw - ow;
       dstp += bw - ow;
@@ -2341,20 +2347,20 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
       {
         for (w = 0; w < ow; w++)   // half line of block
         {
-          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*norm) + planeBase));   // overlapped Copy
+          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*norm + rounder) + planeBase));   // overlapped Copy
         }
         inp += xoffset + ow;
         dstp += ow;
         for (w = 0; w < bw - ow - ow; w++)   // half line of block
         {
-          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w])*norm) + planeBase));
+          dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)((inp[w])*norm + rounder) + planeBase));
         }
         inp += bw - ow - ow;
         dstp += bw - ow - ow;
       }
       for (w = 0; w < ow; w++)   // last half line of last block
       {
-        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)(inp[w] * norm) + planeBase));
+        dstp[w] = min(cast_t(max_pixel_value), max(0, (cast_t)(inp[w] * norm + rounder) + planeBase));
       }
       inp += ow;
       dstp += ow;
