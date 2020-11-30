@@ -1,5 +1,5 @@
 /*
-  FFT3DFilter plugin for Avisynth 2.6 - 3D Frequency Domain filter
+  FFT3DFilter plugin for Avisynth 2.6 and Avisynth + - 3D Frequency Domain filter
 
   Copyright(C)2004-2006 A.G.Balakhnin aka Fizick, bag@hotmail.ru, http://avisynth.org.ru
 
@@ -105,7 +105,7 @@
 
 */
 
-#define VERSION_NUMBER 2.6
+#define VERSION_NUMBER 2.7
 
 //#include "windows.h"
 #include <avisynth.h>
