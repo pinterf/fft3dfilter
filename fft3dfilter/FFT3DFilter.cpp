@@ -508,6 +508,8 @@ class FFT3DFilter : public GenericVideoFilter {
   int _instance_id; // debug unique id
   std::atomic<bool> reentrancy_check;
 
+  bool has_at_least_v8; // frame property support
+
 //	float *fullwinan; // disabled in v2.2.1, return to v1.9.2 method
 //	float *fullwinsyn;
 
@@ -584,6 +586,11 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   static int id = 0; _instance_id = id++;
   reentrancy_check = false;
   _RPT1(0, "FFT3DFilter.Create instance_id=%d\n", _instance_id);
+
+  // Check frame property support
+  has_at_least_v8 = true;
+  try { env->CheckVersion(8); }
+  catch (const AvisynthError&) { has_at_least_v8 = false; }
 
   int i, j;
 
@@ -2852,7 +2859,10 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
     // show noise pattern window
     src = child->GetFrame(n, env); // get noise pattern frame
 //		env->MakeWritable(&src); // it produced bug for separated fields
-    dst = env->NewVideoFrame(vi);
+    if (has_at_least_v8) // w/ frame property source
+      dst = env->NewVideoFrameP(vi, &src);
+    else
+      dst = env->NewVideoFrame(vi);
     CopyFrame(src, dst, vi, plane, env);
 
     // put source bytes to float array of overlapped blocks
@@ -2909,7 +2919,10 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
   // Request frame 'n' from the child (source) clip.
   src = child->GetFrame(n, env);
   _RPT2(0, "FFT3DFilter child GetFrame END, frame=%d instance_id=%d\n", n, _instance_id);
-  dst = env->NewVideoFrame(vi);
+  if (has_at_least_v8) // w/ frame property source
+    dst = env->NewVideoFrameP(vi, &src);
+  else
+    dst = env->NewVideoFrame(vi);
 
   /*
   _multiplane == 0 : process Y, copy U, copy V
@@ -3467,6 +3480,8 @@ class FFT3DFilterMulti : public GenericVideoFilter {
   int _instance_id; // debug unique id
   std::atomic<bool> reentrancy_check;
 
+  bool has_at_least_v8; // frame property support
+
   PClip filtered;
   PClip YClip, UClip, VClip;
   int multiplane;
@@ -3527,6 +3542,11 @@ FFT3DFilterMulti::FFT3DFilterMulti(PClip _child, float _sigma, float _beta, int 
   static int id = 0; _instance_id = id++;
   reentrancy_check = false;
   _RPT1(0, "FFT3DFilterMulti.Create instance_id=%d\n", _instance_id);
+
+  // Check frame property support
+  has_at_least_v8 = true;
+  try { env->CheckVersion(8); }
+  catch (const AvisynthError&) { has_at_least_v8 = false; }
 
   pixelsize = vi.ComponentSize();
   bits_per_pixel = vi.BitsPerComponent();
@@ -3652,7 +3672,10 @@ PVideoFrame __stdcall FFT3DFilterMulti::GetFrame(int n, IScriptEnvironment* env)
     PVideoFrame fU = UClip->GetFrame(n, env);
     PVideoFrame fV = VClip->GetFrame(n, env);
     _RPT2(0, "FFT3DFilterMulti GetFrame, have all fY, fU, fV Frame=%d instance_id=%d\n", n, _instance_id);
-    dst = env->NewVideoFrame(vi);
+    if (has_at_least_v8) // w/ frame property source from Y
+      dst = env->NewVideoFrameP(vi, &fY);
+    else
+      dst = env->NewVideoFrame(vi);
     if (vi.IsPlanar())
     {
       env->BitBlt(dst->GetWritePtr(PLANAR_Y), dst->GetPitch(PLANAR_Y), fY->GetReadPtr(PLANAR_Y),
