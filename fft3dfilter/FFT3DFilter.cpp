@@ -101,6 +101,7 @@
 
   Version 2.7     November 30, 2020 pinterf
                     - make fft3w calls thread safe
+                    - preserve frame properties for avs+
 
 */
 

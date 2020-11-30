@@ -2,6 +2,10 @@
 
 Change log
 ```
+FFT3DFilter v2.7 (20201130)
+  - Fix: make fftw plans thread safe.
+  - preserve frame properties for avs+
+
 FFT3DFilter v2.6 (20190131)
   - Fix: Proper rounding when internal 32 bit float data are converted back to integer pixel values
 
