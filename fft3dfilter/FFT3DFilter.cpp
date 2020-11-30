@@ -99,6 +99,9 @@
   Version 2.6     January 31, 2019 pinterf
                     - use 0.5 rounding before converting back to the integer pixel domain.
 
+  Version 2.7     November 30, 2020 pinterf
+                    - make fft3w calls thread safe
+
 */
 
 #define VERSION_NUMBER 2.6
@@ -116,6 +119,11 @@
 #include <mmintrin.h> // _mm_empty
 #include <algorithm>
 #include <atomic>
+#include <mutex>
+
+// FFTW is not thread-safe, need to guard around its functions (except fftw_execute).
+// http://www.fftw.org/fftw3_doc/Thread-safety.html#Thread-safety
+static std::mutex fftw_mutex; // defined as static
 
 // declarations of filtering functions:
 #ifndef X86_64
@@ -722,7 +730,10 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
     fftwf_execute_dft_c2r = (fftwf_execute_dft_c2r_proc)GetProcAddress(hinstLib, "fftwf_execute_dft_c2r");
     fftwf_init_threads = (fftwf_init_threads_proc)GetProcAddress(hinstLib, "fftwf_init_threads");
     fftwf_plan_with_nthreads = (fftwf_plan_with_nthreads_proc)GetProcAddress(hinstLib, "fftwf_plan_with_nthreads");
-    istat = fftwf_init_threads();
+    {
+      std::lock_guard<std::mutex> lock(fftw_mutex);
+      istat = fftwf_init_threads();
+    }
   }
   if (istat == 0 || hinstLib == NULL || fftwf_free == NULL || fftwf_malloc == NULL || fftwf_plan_many_dft_r2c == NULL ||
     fftwf_plan_many_dft_c2r == NULL || fftwf_destroy_plan == NULL || fftwf_execute_dft_r2c == NULL || fftwf_execute_dft_c2r == NULL)
@@ -734,35 +745,39 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   coverpitch = ((coverwidth + 7) / 8) * 8; // align to 8 elements. Pitch is element-granularity. For byte pitch, multiply is by pixelsize
   coverbuf = (BYTE*)malloc(coverheight*coverpitch*pixelsize);
 
-  int insize = bw*bh*nox*noy;
-  in = (float *)fftwf_malloc(sizeof(float) * insize);
-  outwidth = bw / 2 + 1; // width (pitch) of complex fft block
-  outpitch = ((outwidth + 1) / 2) * 2; // must be even for SSE - v1.7
-  outsize = outpitch*bh*nox*noy; // replace outwidth to outpitch here and below in v1.7
-//	out = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * outsize);
-//	if (bt >= 2)
-//		outprev = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * outsize);
-//	if (bt >= 3)
-//		outnext = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * outsize);
-//	if (bt >= 4)
-//		outprev2 = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * outsize);
-  if (bt == 0) // Kalman
   {
-    outLast = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * outsize);
-    covar = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * outsize);
-    covarProcess = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * outsize);
-  }
-  outrez = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * outsize); //v1.8
-  gridsample = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * outsize); //v1.8
+    std::lock_guard<std::mutex> lock(fftw_mutex);
 
-  // fft cache - added in v1.8
-  cachesize = bt + 2;
-  cachewhat = (int *)malloc(sizeof(int)*cachesize);
-  cachefft = (fftwf_complex **)fftwf_malloc(sizeof(fftwf_complex *)*cachesize);
-  for (i = 0; i < cachesize; i++)
-  {
-    cachefft[i] = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * outsize);
-    cachewhat[i] = -1; // init as notexistant
+    int insize = bw * bh * nox * noy;
+    in = (float*)fftwf_malloc(sizeof(float) * insize);
+    outwidth = bw / 2 + 1; // width (pitch) of complex fft block
+    outpitch = ((outwidth + 1) / 2) * 2; // must be even for SSE - v1.7
+    outsize = outpitch * bh * nox * noy; // replace outwidth to outpitch here and below in v1.7
+  //	out = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * outsize);
+  //	if (bt >= 2)
+  //		outprev = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * outsize);
+  //	if (bt >= 3)
+  //		outnext = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * outsize);
+  //	if (bt >= 4)
+  //		outprev2 = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * outsize);
+    if (bt == 0) // Kalman
+    {
+      outLast = (fftwf_complex*)fftwf_malloc(sizeof(fftwf_complex) * outsize);
+      covar = (fftwf_complex*)fftwf_malloc(sizeof(fftwf_complex) * outsize);
+      covarProcess = (fftwf_complex*)fftwf_malloc(sizeof(fftwf_complex) * outsize);
+    }
+    outrez = (fftwf_complex*)fftwf_malloc(sizeof(fftwf_complex) * outsize); //v1.8
+    gridsample = (fftwf_complex*)fftwf_malloc(sizeof(fftwf_complex) * outsize); //v1.8
+
+    // fft cache - added in v1.8
+    cachesize = bt + 2;
+    cachewhat = (int*)malloc(sizeof(int) * cachesize);
+    cachefft = (fftwf_complex**)fftwf_malloc(sizeof(fftwf_complex*) * cachesize);
+    for (i = 0; i < cachesize; i++)
+    {
+      cachefft[i] = (fftwf_complex*)fftwf_malloc(sizeof(fftwf_complex) * outsize);
+      cachewhat[i] = -1; // init as notexistant
+    }
   }
 
 
@@ -789,19 +804,22 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   //	*inembed = NULL;
   //	*onembed = NULL;
 
-  fftwf_plan_with_nthreads(ncpu);
+  {
+    std::lock_guard<std::mutex> lock(fftw_mutex);
+    fftwf_plan_with_nthreads(ncpu);
 
-  plan = fftwf_plan_many_dft_r2c(rank, ndim, howmanyblocks,
-    in, inembed, istride, idist, outrez, onembed, ostride, odist, planFlags);
-  if (plan == NULL)
-    env->ThrowError("FFT3DFilter: FFTW plan error");
+    plan = fftwf_plan_many_dft_r2c(rank, ndim, howmanyblocks,
+      in, inembed, istride, idist, outrez, onembed, ostride, odist, planFlags);
+    if (plan == NULL)
+      env->ThrowError("FFT3DFilter: FFTW plan error");
 
-  planinv = fftwf_plan_many_dft_c2r(rank, ndim, howmanyblocks,
-    outrez, onembed, ostride, odist, in, inembed, istride, idist, planFlags);
-  if (planinv == NULL)
-    env->ThrowError("FFT3DFilter: FFTW plan error");
+    planinv = fftwf_plan_many_dft_c2r(rank, ndim, howmanyblocks,
+      outrez, onembed, ostride, odist, in, inembed, istride, idist, planFlags);
+    if (planinv == NULL)
+      env->ThrowError("FFT3DFilter: FFTW plan error");
 
-  fftwf_plan_with_nthreads(1);
+    fftwf_plan_with_nthreads(1);
+  }
 
   wanxl = (float*)malloc(ow * sizeof(float));
   wanxr = (float*)malloc(ow * sizeof(float));
@@ -813,8 +831,11 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   wsynyl = (float*)malloc(oh * sizeof(float));
   wsynyr = (float*)malloc(oh * sizeof(float));
 
-  wsharpen = (float*)fftwf_malloc(bh*outpitch * sizeof(float));
-  wdehalo = (float*)fftwf_malloc(bh*outpitch * sizeof(float));
+  {
+    std::lock_guard<std::mutex> lock(fftw_mutex);
+    wsharpen = (float*)fftwf_malloc(bh * outpitch * sizeof(float));
+    wdehalo = (float*)fftwf_malloc(bh * outpitch * sizeof(float));
+  }
 
   // define analysis and synthesis windows
   // combining window (analize mult by synthesis) is raised cosine (Hanning)
@@ -989,8 +1010,11 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   }
   pwin -= outpitch*bh; // restore pointer
 
-  pattern2d = (float*)fftwf_malloc(bh*outpitch * sizeof(float)); // noise pattern window array
-  pattern3d = (float*)fftwf_malloc(bh*outpitch * sizeof(float)); // noise pattern window array
+  {
+    std::lock_guard<std::mutex> lock(fftw_mutex);
+    pattern2d = (float*)fftwf_malloc(bh * outpitch * sizeof(float)); // noise pattern window array
+    pattern3d = (float*)fftwf_malloc(bh * outpitch * sizeof(float)); // noise pattern window array
+  }
 
   if ((sigma2 != sigma || sigma3 != sigma || sigma4 != sigma) && pfactor == 0)
   {// we have different sigmas, so create pattern from sigmas
@@ -1007,8 +1031,11 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   // allocate large array for simplicity :)
   // but use one block only for speed
   // Attention: other block could be the same, but we do not calculate them!
-  plan1 = fftwf_plan_many_dft_r2c(rank, ndim, 1,
-    in, inembed, istride, idist, outrez, onembed, ostride, odist, planFlags); // 1 block
+  {
+    std::lock_guard<std::mutex> lock(fftw_mutex);
+    plan1 = fftwf_plan_many_dft_r2c(rank, ndim, 1,
+      in, inembed, istride, idist, outrez, onembed, ostride, odist, planFlags); // 1 block
+  }
 
   // avs+
   switch (pixelsize) {
@@ -1036,56 +1063,59 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
 // This is where any actual destructor code used goes
 FFT3DFilter::~FFT3DFilter() {
   // This is where you can deallocate any memory you might have used.
-  fftwf_destroy_plan(plan);
-  fftwf_destroy_plan(plan1);
-  fftwf_destroy_plan(planinv);
-  fftwf_free(in);
-  //	fftwf_free(out);
-  free(wanxl);
-  free(wanxr);
-  free(wanyl);
-  free(wanyr);
-  free(wsynxl);
-  free(wsynxr);
-  free(wsynyl);
-  free(wsynyr);
-  fftwf_free(wsharpen);
-  fftwf_free(wdehalo);
-  free(mean);
-  free(pwin);
-  fftwf_free(pattern2d);
-  fftwf_free(pattern3d);
-  //	if (bt >= 2)
-  //		fftwf_free(outprev);
-  //	if (bt >= 3)
-  //		fftwf_free(outnext);
-  //	if (bt >= 4)
-  //		fftwf_free(outprev2);
-  fftwf_free(outrez);
-  if (bt == 0) // Kalman
   {
-    fftwf_free(outLast);
-    fftwf_free(covar);
-    fftwf_free(covarProcess);
+    std::lock_guard<std::mutex> lock(fftw_mutex);
+    fftwf_destroy_plan(plan);
+    fftwf_destroy_plan(plan1);
+    fftwf_destroy_plan(planinv);
+    fftwf_free(in);
+    //	fftwf_free(out);
+    free(wanxl);
+    free(wanxr);
+    free(wanyl);
+    free(wanyr);
+    free(wsynxl);
+    free(wsynxr);
+    free(wsynyl);
+    free(wsynyr);
+    fftwf_free(wsharpen);
+    fftwf_free(wdehalo);
+    free(mean);
+    free(pwin);
+    fftwf_free(pattern2d);
+    fftwf_free(pattern3d);
+    //	if (bt >= 2)
+    //		fftwf_free(outprev);
+    //	if (bt >= 3)
+    //		fftwf_free(outnext);
+    //	if (bt >= 4)
+    //		fftwf_free(outprev2);
+    fftwf_free(outrez);
+    if (bt == 0) // Kalman
+    {
+      fftwf_free(outLast);
+      fftwf_free(covar);
+      fftwf_free(covarProcess);
+    }
+    free(coverbuf);
+    free(cachewhat);
+    for (int i = 0; i < cachesize; i++)
+    {
+      fftwf_free(cachefft[i]);
+    }
+    fftwf_free(cachefft);
+    fftwf_free(gridsample); //fixed memory leakage in v1.8.5
+  //	fftwf_free(fullwinan);
+  //	fftwf_free(fullwinsyn);
+  //	fftwf_free(shiftedprev);
+  //	fftwf_free(shiftedprev2);
+  //	fftwf_free(shiftednext);
+  //	fftwf_free(shiftednext2);
+  //	fftwf_free(fftcorrel);
+  //	fftwf_free(correl);
+  //	free(xshifts);
+  //	free(yshifts);
   }
-  free(coverbuf);
-  free(cachewhat);
-  for (int i = 0; i < cachesize; i++)
-  {
-    fftwf_free(cachefft[i]);
-  }
-  fftwf_free(cachefft);
-  fftwf_free(gridsample); //fixed memory leakage in v1.8.5
-//	fftwf_free(fullwinan);
-//	fftwf_free(fullwinsyn);
-//	fftwf_free(shiftedprev);
-//	fftwf_free(shiftedprev2);
-//	fftwf_free(shiftednext);
-//	fftwf_free(shiftednext2);
-//	fftwf_free(fftcorrel);
-//	fftwf_free(correl);
-//	free(xshifts);
-//	free(yshifts);
 
   if (hinstLib != NULL)
     FreeLibrary(hinstLib);
