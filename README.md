@@ -2,6 +2,9 @@
 
 Change log
 ```
+FFT3DFilter v2.8 (20201201)
+- Fix: chroma plane filtering for 32 bit float formats  
+
 FFT3DFilter v2.7 (20201130)
   - Fix: make fftw plans thread safe.
   - preserve frame properties for avs+
