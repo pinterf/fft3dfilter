@@ -3005,7 +3005,12 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
   _multiplane == 2 : copy Y, copy U, process V
   _multiplane == 3 : copy Y, process U, process V
   _multiplane == 4 : process Y, process U, process V
+
+  plane == 0 : Y
+  plane == 1 : U
+  plane == 2 : V
   */
+  // fixme: why only for plane U???? (plane==1)
   if (multiplane < 3 || (multiplane == 3 && plane == 1)) // v1.8.4
   {
     CopyFrame(src, dst, vi, plane, env);
