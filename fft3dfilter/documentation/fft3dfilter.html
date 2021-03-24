@@ -11,7 +11,7 @@
 <h1>FFT3DFilter</h1>
 
 <p>Plugin for <a href="http://www.avisynth.org">Avisynth 2.6</a> and <a href="http://avisynth.nl/index.php/AviSynth%2B">Avisynth+</a><br>
-Copyright (C)2017-2020 v2.8: high bit depth and planar rgb support on Avisynth+ (10-16 bits and float) by pinterf<br>
+Copyright (C)2017-2021 v2.9: high bit depth and planar rgb support on Avisynth+ (10-16 bits and float) by pinterf<br>
 Based on version 2.2<br>
 Copyright (C)2017 martin53 doom9.org forum member, with kind permission of Fizick<br>
 Based on Version 2.1.1, which is
@@ -518,11 +518,18 @@ re-enabled SSE optimization for degrid=0; added SSE optimization for bt=3,-1 wit
 - Fix: Proper rounding before internal 32 bit float data are converted back to integer pixel values<br>
 </li>
 <li>Version 2.7   - November 30, 2020<br>
-- Fix: make fftw plans thread safe.
+- Fix: make fftw plans thread safe.<br>
 - preserve frame properties for avs+
 </li>
 <li>Version 2.8   - December 1, 2020<br>
 - Fix: chroma plane filtering for 32 bit float formats
+</li>
+<li>Version 2.9   - March 24, 2021<br>
+- Fix issue when pfactor <> 0 and using 10+ bits (Xinyue Lu, neo_FFT3D)<br>
+- Fix incorrect negative value float to integer rounding (Xinyue Lu, neo_FFT3D r7)<br>
+- add CMake build system<br>
+- linux build<br>
+- Replace never used 3dnow ApplyWiener3D4 with simd SSE2. (bt=4, degrid=0, pfactor=0) (2x speed)
 </li>
 
 </ul>
