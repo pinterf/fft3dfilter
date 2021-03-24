@@ -19,15 +19,8 @@
 
 
 #include	"info.h"
-
-#define	NOGDI
-#define	NOMINMAX
-#define	WIN32_LEAN_AND_MEAN
-//#include "Windows.h"
 #include	"avisynth.h"
 #include <stdint.h>
-
-
 
 static unsigned short font[][20] = {
 //STARTCHAR space

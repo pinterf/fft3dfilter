@@ -19,7 +19,6 @@
 //
 //-----------------------------------------------------------------------------------------
 //
-#include "windows.h"
 #include <avs/config.h> // x64
 #include "fftwlite.h"
 #include <emmintrin.h>
@@ -77,14 +76,14 @@ void ApplyKalman_SSE2_simd(fftwf_complex *outcur, fftwf_complex *outLast,
       // reset filter
       // outLast[w][0] = outcur[w][0];
       // outLast[w][1] = outcur[w][1];
-      _mm_storel_epi64(reinterpret_cast<__m128i *>((byte *)outLast + eax), _mm_castps_si128(cur)); // return result in outLast
+      _mm_storel_epi64(reinterpret_cast<__m128i *>((uint8_t*)outLast + eax), _mm_castps_si128(cur)); // return result in outLast
 
       // covar[w][0] = covarNoiseNormed; 
       // covar[w][1] = covarNoiseNormed; 
       // covarProcess[w][0] = covarNoiseNormed; 
       // covarProcess[w][1] = covarNoiseNormed; 
-      _mm_storel_epi64(reinterpret_cast<__m128i *>((byte *)covar + eax), _mm_castps_si128(covarNoiseNormed_vect));
-      _mm_storel_epi64(reinterpret_cast<__m128i *>((byte *)covarProcess + eax), _mm_castps_si128(covarNoiseNormed_vect));
+      _mm_storel_epi64(reinterpret_cast<__m128i *>((uint8_t*)covar + eax), _mm_castps_si128(covarNoiseNormed_vect));
+      _mm_storel_epi64(reinterpret_cast<__m128i *>((uint8_t*)covarProcess + eax), _mm_castps_si128(covarNoiseNormed_vect));
       continue;
     }
     /*
@@ -132,14 +131,14 @@ void ApplyKalman_SSE2_simd(fftwf_complex *outcur, fftwf_complex *outLast,
     xmm3 = _mm_mul_ps(xmm3, covarNoiseNormed_vect); // gain*gain*covarNoiseNormed
     // covarProcess[w][0] = (GainRe*GainRe*covarNoiseNormed);
     // covarProcess[w][1] = (GainIm*GainIm*covarNoiseNormed);
-    _mm_storel_epi64(reinterpret_cast<__m128i *>((byte *)covarProcess + eax), _mm_castps_si128(xmm3));
+    _mm_storel_epi64(reinterpret_cast<__m128i *>((uint8_t*)covarProcess + eax), _mm_castps_si128(xmm3));
 
     // update variation
     xmm3 = _mm_mul_ps(gain_xmm5, sum_xmm4); // gain*sum
     xmm3 = _mm_sub_ps(sum_xmm4, xmm3); // sum - gain*sum
     // covar[w][0] =  (1-GainRe)*sumre ; = sumre - GainRe*sumre
     // covar[w][1] =  (1-GainIm)*sumim ;
-    _mm_storel_epi64(reinterpret_cast<__m128i *>((byte *)covar + eax), _mm_castps_si128(xmm3));
+    _mm_storel_epi64(reinterpret_cast<__m128i *>((uint8_t*)covar + eax), _mm_castps_si128(xmm3));
 
     // make output
     xmm0 = _mm_sub_ps(cur, last); // cur-last
@@ -148,7 +147,7 @@ void ApplyKalman_SSE2_simd(fftwf_complex *outcur, fftwf_complex *outLast,
     // outLast[w][0] = ( GainRe*outcur[w][0] + (1 - GainRe)*outLast[w][0] ); = GainRe*(outcur[w][0]-outLast[w][0]) + outLast[w][0]
     // outLast[w][1] = ( GainIm*outcur[w][1] + (1 - GainIm)*outLast[w][1] );
     //return filtered result in outLast
-    _mm_storel_epi64(reinterpret_cast<__m128i *>((byte *)outLast + eax), _mm_castps_si128(xmm0));
+    _mm_storel_epi64(reinterpret_cast<__m128i *>((uint8_t*)outLast + eax), _mm_castps_si128(xmm0));
   }
 }
 
@@ -231,7 +230,7 @@ void ApplyWiener3D2_SSE_simd(fftwf_complex *outcur, fftwf_complex *outprev,
     // outprev[w][0] = (f3d0r + f3d1r)*0.5f; // get real part
     // outprev[w][1] = (f3d0i + f3d1i)*0.5f; // get imaginary part
     xmm2 = _mm_mul_ps(xmm2, onehalf); // filterd(sum + dif)*0.5
-    _mm_store_ps(reinterpret_cast<float *>((byte *)outprev + n), xmm2);
+    _mm_store_ps(reinterpret_cast<float *>((uint8_t*)outprev + n), xmm2);
     // Attention! return filtered "outcur" in "outprev" to preserve "outcur" for next step
   }
 }
@@ -1400,8 +1399,8 @@ static void do_Sharpen_degrid_SSE_simd(fftwf_complex *outcur, int outwidth, int 
     {
       auto gridfraction_ps = _mm_load1_ps(&gridfraction_ss);
 
-      auto outcur_ps = _mm_loadu_ps((const float *)((BYTE *)(outcur)+w));
-      auto gridsample_ps = _mm_loadu_ps((const float *)((BYTE *)(gridsample)+w));
+      auto outcur_ps = _mm_loadu_ps((const float *)((uint8_t*)(outcur)+w));
+      auto gridsample_ps = _mm_loadu_ps((const float *)((uint8_t*)(gridsample)+w));
       auto gridcorrection_ps = _mm_mul_ps(gridfraction_ps, gridsample_ps);
       auto diff_ourcur_gridcorr_reim = _mm_sub_ps(outcur_ps, gridcorrection_ps);
       auto reim = diff_ourcur_gridcorr_reim;
@@ -1435,7 +1434,7 @@ static void do_Sharpen_degrid_SSE_simd(fftwf_complex *outcur, int outwidth, int 
 
       if (do_sharpen) {
       // take only two elements from dehalo and wsharpen
-        auto wsharpen_ps = _mm_castsi128_ps(_mm_loadl_epi64((const __m128i *)((byte *)(wsharpen)+(w >> 1)))); // two floats
+        auto wsharpen_ps = _mm_castsi128_ps(_mm_loadl_epi64((const __m128i *)((uint8_t*)(wsharpen)+(w >> 1)))); // two floats
         wsharpen_ps = _mm_shuffle_ps(wsharpen_ps, wsharpen_ps, (64 + 16 + 0 + 0)); // 01 01 00 00 low
         auto smax_ps = _mm_load1_ps(&sigmaSquaredSharpenMax);
         auto smin_ps = _mm_load1_ps(&sigmaSquaredSharpenMin);
@@ -1451,7 +1450,7 @@ static void do_Sharpen_degrid_SSE_simd(fftwf_complex *outcur, int outwidth, int 
       if (do_dehalo) {
         auto dehalo_ps = _mm_load1_ps(&dehalo);
         auto ht2n_ps = _mm_load1_ps(&ht2n);
-        auto wdehalo_ps = _mm_castsi128_ps(_mm_loadl_epi64((const __m128i *)((byte *)(wdehalo)+(w >> 1)))); // two floats
+        auto wdehalo_ps = _mm_castsi128_ps(_mm_loadl_epi64((const __m128i *)((uint8_t*)(wdehalo)+(w >> 1)))); // two floats
         wdehalo_ps = _mm_shuffle_ps(wdehalo_ps, wdehalo_ps, (64 + 16 + 0 + 0)); // 01 01 00 00 low
 
         auto dehalo_mul = _mm_mul_ps(_mm_mul_ps(dehalo_ps, wdehalo_ps), psd);
@@ -1475,7 +1474,7 @@ static void do_Sharpen_degrid_SSE_simd(fftwf_complex *outcur, int outwidth, int 
       auto result = _mm_add_ps(reim, gridcorrection_ps);
       //outcur[w][0] = re + gridcorrection0;
       //outcur[w][1] = im + gridcorrection1;
-      _mm_storeu_ps((float *)((byte *)(outcur)+w), result);
+      _mm_storeu_ps((float *)((uint8_t*)(outcur)+w), result);
     //}
     /*
     outcur += outpitch;
@@ -1776,15 +1775,15 @@ void ApplyWiener3D3_degrid_SSE_simd(fftwf_complex *outcur, fftwf_complex *outpre
   //	{
   int ecx_bytesperblock = bytesperblock; //  mov ecx, bytesperblock; // counter
 
-  byte *pOutcur = (byte *)outcur; //  mov esi, outcur; // current
-  byte *pOutPrev = (byte *)outprev; //  mov edi, outprev;
-  byte *pOutNext = (byte *)outnext; //  mov edx, outnext;
+  uint8_t*pOutcur = (uint8_t*)outcur; //  mov esi, outcur; // current
+  uint8_t*pOutPrev = (uint8_t*)outprev; //  mov edi, outprev;
+  uint8_t*pOutNext = (uint8_t*)outnext; //  mov edx, outnext;
 
   __m128 xmm1, xmm2, xmm3, xmm4, xmm5, xmm6, xmm7;
 
   for (int block = 0; block < howmanyblocks; block++) { // for (block=0; block <howmanyblocks; block++)
     // Orig_C: float gridfraction = degrid*outcur[0][0] / gridsample[0][0];
-    byte *pGridSample = (byte *)gridsample;
+    uint8_t*pGridSample = (uint8_t*)gridsample;
 
     __m128 outCur00 = _mm_load_ps((float *)pOutcur); // cur real | img 
     xmm7 = _mm_mul_ps(outCur00, _mm_load1_ps(&degrid));

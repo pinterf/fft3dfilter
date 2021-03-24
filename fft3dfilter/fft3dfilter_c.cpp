@@ -19,9 +19,14 @@
 //
 //-----------------------------------------------------------------------------------------
 
-#include "windows.h"
+#ifdef _WIN32
+#define NOMINMAX
+#include "Windows.h"
+#endif
+
 #include "fftwlite.h"
 #include "math.h" // for sqrtf
+#include <algorithm>
 
 // since v1.7 we use outpitch instead of outwidth
 
@@ -48,7 +53,7 @@ void ApplyWiener2D_C(fftwf_complex *outcur, int outwidth, int outpitch, int bh,
 				for (w=0; w<outwidth; w++) // not skip first v.1.2
 				{
 					psd = (outcur[w][0]*outcur[w][0] + outcur[w][1]*outcur[w][1]) + 1e-15f;// power spectrum density
-					WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+					WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 					outcur[w][0] *= WienerFactor; // apply filter on real  part	
 					outcur[w][1] *= WienerFactor; // apply filter on imaginary part
 				}
@@ -65,7 +70,7 @@ void ApplyWiener2D_C(fftwf_complex *outcur, int outwidth, int outpitch, int bh,
 				for (w=0; w<outwidth; w++) // not skip first
 				{
 					psd = (outcur[w][0]*outcur[w][0] + outcur[w][1]*outcur[w][1]) + 1e-15f;// power spectrum density
-					WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+					WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 					WienerFactor *= 1 + sharpen*wsharpen[w]*sqrt( psd*sigmaSquaredSharpenMax/((psd + sigmaSquaredSharpenMin)*(psd + sigmaSquaredSharpenMax)) ); // sharpen factor - changed in v.1.1
 					outcur[w][0] *= WienerFactor; // apply filter on real  part	
 					outcur[w][1] *= WienerFactor; // apply filter on imaginary part
@@ -85,7 +90,7 @@ void ApplyWiener2D_C(fftwf_complex *outcur, int outwidth, int outpitch, int bh,
 				for (w=0; w<outwidth; w++) // not skip first
 				{
 					psd = (outcur[w][0]*outcur[w][0] + outcur[w][1]*outcur[w][1]) + 1e-15f;// power spectrum density
-					WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+					WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 					WienerFactor *= (psd + ht2n)/((psd + ht2n) + dehalo*wdehalo[w] * psd ); 
 					outcur[w][0] *= WienerFactor; // apply filter on real  part	
 					outcur[w][1] *= WienerFactor; // apply filter on imaginary part
@@ -105,7 +110,7 @@ void ApplyWiener2D_C(fftwf_complex *outcur, int outwidth, int outpitch, int bh,
 				for (w=0; w<outwidth; w++) // not skip first
 				{
 					psd = (outcur[w][0]*outcur[w][0] + outcur[w][1]*outcur[w][1]) + 1e-15f;// power spectrum density
-					WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+					WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 					WienerFactor *= 1 + sharpen*wsharpen[w]*sqrt( psd*sigmaSquaredSharpenMax/((psd + sigmaSquaredSharpenMin)*(psd + sigmaSquaredSharpenMax)) ) *
 						(psd + ht2n)/((psd + ht2n) + dehalo*wdehalo[w] * psd ); 
 					outcur[w][0] *= WienerFactor; // apply filter on real  part	
@@ -142,7 +147,7 @@ void ApplyPattern2D_C(fftwf_complex *outcur, int outwidth, int outpitch, int bh,
 				for (w=0; w<outwidth; w++) 
 				{
 					psd = (outcur[w][0]*outcur[w][0] + outcur[w][1]*outcur[w][1]) + 1e-15f;
-					patternfactor = max((psd - pfactor*pattern2d[w])/psd, lowlimit);
+					patternfactor = std::max((psd - pfactor*pattern2d[w])/psd, lowlimit);
 					outcur[w][0] *= patternfactor;
 					outcur[w][1] *= patternfactor;
 				}
@@ -180,11 +185,11 @@ void ApplyWiener3D2_C(fftwf_complex *outcur, fftwf_complex *outprev,
 				f3d1r =  outcur[w][0] - outprev[w][0]; // real 1 (dif)
 				f3d1i =  outcur[w][1] - outprev[w][1]; // im 1 (dif)
 				psd = f3d0r*f3d0r + f3d0i*f3d0i + 1e-15f; // power spectrum density 0
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				f3d0r *= WienerFactor; // apply filter on real  part	
 				f3d0i *= WienerFactor; // apply filter on imaginary part
 				psd = f3d1r*f3d1r + f3d1i*f3d1i + 1e-15f; // power spectrum density 1
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				f3d1r *= WienerFactor; // apply filter on real  part	
 				f3d1i *= WienerFactor; // apply filter on imaginary part
 				// reverse dft for 2 points
@@ -225,11 +230,11 @@ void ApplyPattern3D2_C(fftwf_complex *outcur, fftwf_complex *outprev,
 				f3d1r =  outcur[w][0] - outprev[w][0]; // real 1 (dif)
 				f3d1i =  outcur[w][1] - outprev[w][1]; // im 1 (dif)
 				psd = f3d0r*f3d0r + f3d0i*f3d0i + 1e-15f; // power spectrum density 0
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				f3d0r *= WienerFactor; // apply filter on real  part	
 				f3d0i *= WienerFactor; // apply filter on imaginary part
 				psd = f3d1r*f3d1r + f3d1i*f3d1i + 1e-15f; // power spectrum density 1
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				f3d1r *= WienerFactor; // apply filter on real  part	
 				f3d1i *= WienerFactor; // apply filter on imaginary part
 				// reverse dft for 2 points
@@ -282,15 +287,15 @@ void ApplyWiener3D3_C(fftwf_complex *outcur, fftwf_complex *outprev, fftwf_compl
 //				fni = outcur[w][1] - 0.5f*pni - dr ; // im next
 				fni = fpi - dr - dr; //v1.8.1
 				psd = fcr*fcr + fci*fci + 1e-15f; // power spectrum density cur
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fcr *= WienerFactor; // apply filter on real  part	
 				fci *= WienerFactor; // apply filter on imaginary part
 				psd = fpr*fpr + fpi*fpi + 1e-15f; // power spectrum density prev
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fpr *= WienerFactor; // apply filter on real  part	
 				fpi *= WienerFactor; // apply filter on imaginary part
 				psd = fnr*fnr + fni*fni + 1e-15f; // power spectrum density next
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fnr *= WienerFactor; // apply filter on real  part	
 				fni *= WienerFactor; // apply filter on imaginary part
 				// reverse dft for 3 points
@@ -339,15 +344,15 @@ void ApplyPattern3D3_C(fftwf_complex *outcur, fftwf_complex *outprev, fftwf_comp
 				fpi = outcur[w][1] - 0.5f*pni + dr; // im prev
 				fni = outcur[w][1] - 0.5f*pni - dr ; // im next
 				psd = fcr*fcr + fci*fci + 1e-15f; // power spectrum density cur
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fcr *= WienerFactor; // apply filter on real  part	
 				fci *= WienerFactor; // apply filter on imaginary part
 				psd = fpr*fpr + fpi*fpi + 1e-15f; // power spectrum density prev
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fpr *= WienerFactor; // apply filter on real  part	
 				fpi *= WienerFactor; // apply filter on imaginary part
 				psd = fnr*fnr + fni*fni + 1e-15f; // power spectrum density next
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fnr *= WienerFactor; // apply filter on real  part	
 				fni *= WienerFactor; // apply filter on imaginary part
 				// reverse dft for 3 points
@@ -399,22 +404,22 @@ void ApplyWiener3D4_C(fftwf_complex *outcur, fftwf_complex *outprev2, fftwf_comp
 				fp2i = outprev2[w][1] - outprev[w][1] + outcur[w][1] - outnext[w][1]; // im cur
 
 				psd = fp2r*fp2r + fp2i*fp2i + 1e-15f; // power spectrum density prev2
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fp2r *= WienerFactor; // apply filter on real  part	
 				fp2i *= WienerFactor; // apply filter on imaginary part
 
 				psd = fpr*fpr + fpi*fpi + 1e-15f; // power spectrum density prev
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fpr *= WienerFactor; // apply filter on real  part	
 				fpi *= WienerFactor; // apply filter on imaginary part
 
 				psd = fcr*fcr + fci*fci + 1e-15f; // power spectrum density cur
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fcr *= WienerFactor; // apply filter on real  part	
 				fci *= WienerFactor; // apply filter on imaginary part
 
 				psd = fnr*fnr + fni*fni + 1e-15f; // power spectrum density next
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fnr *= WienerFactor; // apply filter on real  part	
 				fni *= WienerFactor; // apply filter on imaginary part
 
@@ -464,22 +469,22 @@ void ApplyPattern3D4_C(fftwf_complex *outcur, fftwf_complex *outprev2, fftwf_com
 				fni = -outprev2[w][1] + outprev[w][0] + outcur[w][1] - outnext[w][0]; // im next
 
 				psd = fp2r*fp2r + fp2i*fp2i + 1e-15f; // power spectrum density prev2
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fp2r *= WienerFactor; // apply filter on real  part	
 				fp2i *= WienerFactor; // apply filter on imaginary part
 
 				psd = fpr*fpr + fpi*fpi + 1e-15f; // power spectrum density prev
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fpr *= WienerFactor; // apply filter on real  part	
 				fpi *= WienerFactor; // apply filter on imaginary part
 
 				psd = fcr*fcr + fci*fci + 1e-15f; // power spectrum density cur
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fcr *= WienerFactor; // apply filter on real  part	
 				fci *= WienerFactor; // apply filter on imaginary part
 
 				psd = fnr*fnr + fni*fni + 1e-15f; // power spectrum density next
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fnr *= WienerFactor; // apply filter on real  part	
 				fni *= WienerFactor; // apply filter on imaginary part
 
@@ -847,7 +852,7 @@ void ApplyWiener2D_degrid_C(fftwf_complex *outcur, int outwidth, int outpitch, i
 					float corrected1 = outcur[w][1] - gridcorrection1;
 					psd = (corrected0*corrected0 + corrected1*corrected1 ) + 1e-15f;// power spectrum density
 //					psd = (outcur[w][0]*outcur[w][0] + outcur[w][1]*outcur[w][1]) + 1e-15f;
-					WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+					WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 					corrected0 *= WienerFactor; // apply filter on real  part	
 					corrected1 *= WienerFactor; // apply filter on imaginary part
 					outcur[w][0] = corrected0 + gridcorrection0;
@@ -874,7 +879,7 @@ void ApplyWiener2D_degrid_C(fftwf_complex *outcur, int outwidth, int outpitch, i
 					float gridcorrection1 = gridfraction*gridsample[w][1];
 					float corrected1 = outcur[w][1] - gridcorrection1;
 					psd = (corrected0*corrected0 + corrected1*corrected1 ) + 1e-15f;// power spectrum density
-					WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+					WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 					WienerFactor *= 1 + sharpen*wsharpen[w]*sqrt( psd*sigmaSquaredSharpenMax/((psd + sigmaSquaredSharpenMin)*(psd + sigmaSquaredSharpenMax)) ); // sharpen factor - changed in v.1.1
 //					outcur[w][0] *= WienerFactor; // apply filter on real  part	
 //					outcur[w][1] *= WienerFactor; // apply filter on imaginary part
@@ -906,7 +911,7 @@ void ApplyWiener2D_degrid_C(fftwf_complex *outcur, int outwidth, int outpitch, i
 					float gridcorrection1 = gridfraction*gridsample[w][1];
 					float corrected1 = outcur[w][1] - gridcorrection1;
 					psd = (corrected0*corrected0 + corrected1*corrected1 ) + 1e-15f;// power spectrum density
-					WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+					WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 					WienerFactor *= (psd + ht2n)/((psd + ht2n) + dehalo*wdehalo[w] * psd ); 
 //					outcur[w][0] *= WienerFactor; // apply filter on real  part	
 //					outcur[w][1] *= WienerFactor; // apply filter on imaginary part
@@ -938,7 +943,7 @@ void ApplyWiener2D_degrid_C(fftwf_complex *outcur, int outwidth, int outpitch, i
 					float gridcorrection1 = gridfraction*gridsample[w][1];
 					float corrected1 = outcur[w][1] - gridcorrection1;
 					psd = (corrected0*corrected0 + corrected1*corrected1 ) + 1e-15f;// power spectrum density
-					WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+					WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 					WienerFactor *= 1 + sharpen*wsharpen[w]*sqrt( psd*sigmaSquaredSharpenMax/((psd + sigmaSquaredSharpenMin)*(psd + sigmaSquaredSharpenMax)) ) *
 						(psd + ht2n)/((psd + ht2n)+ dehalo*wdehalo[w] * psd ); 
 //					outcur[w][0] *= WienerFactor; // apply filter on real  part	
@@ -989,14 +994,14 @@ void ApplyWiener3D2_degrid_C(fftwf_complex *outcur, fftwf_complex *outprev,
 				f3d0r =  outcur[w][0] + outprev[w][0] - gridcorrection0_2; // real 0 (sum)
 				f3d0i =  outcur[w][1] + outprev[w][1] - gridcorrection1_2; // im 0 (sum)
 				psd = f3d0r*f3d0r + f3d0i*f3d0i + 1e-15f; // power spectrum density 0
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				f3d0r *= WienerFactor; // apply filter on real  part	
 				f3d0i *= WienerFactor; // apply filter on imaginary part
 
 				f3d1r =  outcur[w][0] - outprev[w][0]; // real 1 (dif)
 				f3d1i =  outcur[w][1] - outprev[w][1]; // im 1 (dif)
 				psd = f3d1r*f3d1r + f3d1i*f3d1i + 1e-15f; // power spectrum density 1
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				f3d1r *= WienerFactor; // apply filter on real  part	
 				f3d1i *= WienerFactor; // apply filter on imaginary part
 				// reverse dft for 2 points
@@ -1052,15 +1057,15 @@ void ApplyWiener3D3_degrid_C(fftwf_complex *outcur, fftwf_complex *outprev, fftw
 				fpi = outcur[w][1] - 0.5f*pni + dr; // im prev
 				fni = outcur[w][1] - 0.5f*pni - dr ; // im next
 				psd = fcr*fcr + fci*fci + 1e-15f; // power spectrum density cur
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fcr *= WienerFactor; // apply filter on real  part	
 				fci *= WienerFactor; // apply filter on imaginary part
 				psd = fpr*fpr + fpi*fpi + 1e-15f; // power spectrum density prev
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fpr *= WienerFactor; // apply filter on real  part	
 				fpi *= WienerFactor; // apply filter on imaginary part
 				psd = fnr*fnr + fni*fni + 1e-15f; // power spectrum density next
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fnr *= WienerFactor; // apply filter on real  part	
 				fni *= WienerFactor; // apply filter on imaginary part
 				// reverse dft for 3 points
@@ -1116,22 +1121,22 @@ void ApplyWiener3D4_degrid_C(fftwf_complex *outcur, fftwf_complex *outprev2, fft
 				fp2i = outprev2[w][1] - outprev[w][1] + outcur[w][1] - outnext[w][1]; // im cur
 
 				psd = fp2r*fp2r + fp2i*fp2i + 1e-15f; // power spectrum density prev2
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fp2r *= WienerFactor; // apply filter on real  part	
 				fp2i *= WienerFactor; // apply filter on imaginary part
 
 				psd = fpr*fpr + fpi*fpi + 1e-15f; // power spectrum density prev
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fpr *= WienerFactor; // apply filter on real  part	
 				fpi *= WienerFactor; // apply filter on imaginary part
 
 				psd = fcr*fcr + fci*fci + 1e-15f; // power spectrum density cur
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fcr *= WienerFactor; // apply filter on real  part	
 				fci *= WienerFactor; // apply filter on imaginary part
 
 				psd = fnr*fnr + fni*fni + 1e-15f; // power spectrum density next
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fnr *= WienerFactor; // apply filter on real  part	
 				fni *= WienerFactor; // apply filter on imaginary part
 
@@ -1178,7 +1183,7 @@ void ApplyPattern2D_degrid_C(fftwf_complex *outcur, int outwidth, int outpitch, 
 					float corrected1 = outcur[w][1] - gridcorrection1;
 					psd = (corrected0*corrected0 + corrected1*corrected1 ) + 1e-15f;// power spectrum density
 //					psd = (outcur[w][0]*outcur[w][0] + outcur[w][1]*outcur[w][1]) + 1e-15f;
-					WienerFactor = max((psd - pfactor*pattern2d[w])/psd, lowlimit); // limited Wiener filter
+					WienerFactor = std::max((psd - pfactor*pattern2d[w])/psd, lowlimit); // limited Wiener filter
 					corrected0 *= WienerFactor; // apply filter on real  part	
 					corrected1 *= WienerFactor; // apply filter on imaginary part
 					outcur[w][0] = corrected0 + gridcorrection0;
@@ -1223,11 +1228,11 @@ void ApplyPattern3D2_degrid_C(fftwf_complex *outcur, fftwf_complex *outprev,
 				f3d1r =  outcur[w][0] - outprev[w][0]; // real 1 (dif)
 				f3d1i =  outcur[w][1] - outprev[w][1]; // im 1 (dif)
 				psd = f3d0r*f3d0r + f3d0i*f3d0i + 1e-15f; // power spectrum density 0
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				f3d0r *= WienerFactor; // apply filter on real  part	
 				f3d0i *= WienerFactor; // apply filter on imaginary part
 				psd = f3d1r*f3d1r + f3d1i*f3d1i + 1e-15f; // power spectrum density 1
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				f3d1r *= WienerFactor; // apply filter on real  part	
 				f3d1i *= WienerFactor; // apply filter on imaginary part
 				// reverse dft for 2 points
@@ -1286,15 +1291,15 @@ void ApplyPattern3D3_degrid_C(fftwf_complex *outcur, fftwf_complex *outprev, fft
 				fpi = outcur[w][1] - 0.5f*pni + dr; // im prev
 				fni = outcur[w][1] - 0.5f*pni - dr ; // im next
 				psd = fcr*fcr + fci*fci + 1e-15f; // power spectrum density cur
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fcr *= WienerFactor; // apply filter on real  part	
 				fci *= WienerFactor; // apply filter on imaginary part
 				psd = fpr*fpr + fpi*fpi + 1e-15f; // power spectrum density prev
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fpr *= WienerFactor; // apply filter on real  part	
 				fpi *= WienerFactor; // apply filter on imaginary part
 				psd = fnr*fnr + fni*fni + 1e-15f; // power spectrum density next
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fnr *= WienerFactor; // apply filter on real  part	
 				fni *= WienerFactor; // apply filter on imaginary part
 				// reverse dft for 3 points
@@ -1353,22 +1358,22 @@ void ApplyPattern3D4_degrid_C(fftwf_complex *outcur, fftwf_complex *outprev2, ff
 				fni = -outprev2[w][1] + outprev[w][0] + outcur[w][1] - outnext[w][0]; // im next
 
 				psd = fp2r*fp2r + fp2i*fp2i + 1e-15f; // power spectrum density prev2
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fp2r *= WienerFactor; // apply filter on real  part	
 				fp2i *= WienerFactor; // apply filter on imaginary part
 
 				psd = fpr*fpr + fpi*fpi + 1e-15f; // power spectrum density prev
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fpr *= WienerFactor; // apply filter on real  part	
 				fpi *= WienerFactor; // apply filter on imaginary part
 
 				psd = fcr*fcr + fci*fci + 1e-15f; // power spectrum density cur
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fcr *= WienerFactor; // apply filter on real  part	
 				fci *= WienerFactor; // apply filter on imaginary part
 
 				psd = fnr*fnr + fni*fni + 1e-15f; // power spectrum density next
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fnr *= WienerFactor; // apply filter on real  part	
 				fni *= WienerFactor; // apply filter on imaginary part
 
@@ -1441,27 +1446,27 @@ void ApplyPattern3D5_degrid_C(fftwf_complex *outcur, fftwf_complex *outprev2, ff
 				fci -= gridcorrection1_5;
 
 				psd = fp2r*fp2r + fp2i*fp2i + 1e-15f; // power spectrum density prev2
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fp2r *= WienerFactor; // apply filter on real  part	
 				fp2i *= WienerFactor; // apply filter on imaginary part
 
 				psd = fpr*fpr + fpi*fpi + 1e-15f; // power spectrum density prev
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fpr *= WienerFactor; // apply filter on real  part	
 				fpi *= WienerFactor; // apply filter on imaginary part
 
 				psd = fcr*fcr + fci*fci + 1e-15f; // power spectrum density cur
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fcr *= WienerFactor; // apply filter on real  part	
 				fci *= WienerFactor; // apply filter on imaginary part
 
 				psd = fnr*fnr + fni*fni + 1e-15f; // power spectrum density next
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fnr *= WienerFactor; // apply filter on real  part	
 				fni *= WienerFactor; // apply filter on imaginary part
 
 				psd = fn2r*fn2r + fn2i*fn2i + 1e-15f; // power spectrum density next
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fn2r *= WienerFactor; // apply filter on real  part	
 				fn2i *= WienerFactor; // apply filter on imaginary part
 
@@ -1552,27 +1557,27 @@ void ApplyWiener3D5_degrid_C(fftwf_complex *outcur, fftwf_complex *outprev2, fft
 				fci -= gridcorrection1_5;
 
 				psd = fp2r*fp2r + fp2i*fp2i + 1e-15f; // power spectrum density prev2
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fp2r *= WienerFactor; // apply filter on real  part	
 				fp2i *= WienerFactor; // apply filter on imaginary part
 
 				psd = fpr*fpr + fpi*fpi + 1e-15f; // power spectrum density prev
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fpr *= WienerFactor; // apply filter on real  part	
 				fpi *= WienerFactor; // apply filter on imaginary part
 
 				psd = fcr*fcr + fci*fci + 1e-15f; // power spectrum density cur
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fcr *= WienerFactor; // apply filter on real  part	
 				fci *= WienerFactor; // apply filter on imaginary part
 
 				psd = fnr*fnr + fni*fni + 1e-15f; // power spectrum density next
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fnr *= WienerFactor; // apply filter on real  part	
 				fni *= WienerFactor; // apply filter on imaginary part
 
 				psd = fn2r*fn2r + fn2i*fn2i + 1e-15f; // power spectrum density next
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fn2r *= WienerFactor; // apply filter on real  part	
 				fn2i *= WienerFactor; // apply filter on imaginary part
 
@@ -1638,27 +1643,27 @@ void ApplyPattern3D5_C(fftwf_complex *outcur, fftwf_complex *outprev2, fftwf_com
 				fci = outprev2[w][1] + outprev[w][1] + outcur[w][1] + outnext[w][1] + outnext2[w][1]; // im cur
 
 				psd = fp2r*fp2r + fp2i*fp2i + 1e-15f; // power spectrum density prev2
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fp2r *= WienerFactor; // apply filter on real  part	
 				fp2i *= WienerFactor; // apply filter on imaginary part
 
 				psd = fpr*fpr + fpi*fpi + 1e-15f; // power spectrum density prev
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fpr *= WienerFactor; // apply filter on real  part	
 				fpi *= WienerFactor; // apply filter on imaginary part
 
 				psd = fcr*fcr + fci*fci + 1e-15f; // power spectrum density cur
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fcr *= WienerFactor; // apply filter on real  part	
 				fci *= WienerFactor; // apply filter on imaginary part
 
 				psd = fnr*fnr + fni*fni + 1e-15f; // power spectrum density next
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fnr *= WienerFactor; // apply filter on real  part	
 				fni *= WienerFactor; // apply filter on imaginary part
 
 				psd = fn2r*fn2r + fn2i*fn2i + 1e-15f; // power spectrum density next
-				WienerFactor = max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - pattern3d[w])/psd, lowlimit); // limited Wiener filter
 				fn2r *= WienerFactor; // apply filter on real  part	
 				fn2i *= WienerFactor; // apply filter on imaginary part
 
@@ -1725,27 +1730,27 @@ void ApplyWiener3D5_C(fftwf_complex *outcur, fftwf_complex *outprev2, fftwf_comp
 				fci = outprev2[w][1] + outprev[w][1] + outcur[w][1] + outnext[w][1] + outnext2[w][1]; // im cur
 
 				psd = fp2r*fp2r + fp2i*fp2i + 1e-15f; // power spectrum density prev2
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fp2r *= WienerFactor; // apply filter on real  part	
 				fp2i *= WienerFactor; // apply filter on imaginary part
 
 				psd = fpr*fpr + fpi*fpi + 1e-15f; // power spectrum density prev
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fpr *= WienerFactor; // apply filter on real  part	
 				fpi *= WienerFactor; // apply filter on imaginary part
 
 				psd = fcr*fcr + fci*fci + 1e-15f; // power spectrum density cur
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fcr *= WienerFactor; // apply filter on real  part	
 				fci *= WienerFactor; // apply filter on imaginary part
 
 				psd = fnr*fnr + fni*fni + 1e-15f; // power spectrum density next
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fnr *= WienerFactor; // apply filter on real  part	
 				fni *= WienerFactor; // apply filter on imaginary part
 
 				psd = fn2r*fn2r + fn2i*fn2i + 1e-15f; // power spectrum density next2
-				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+				WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
 				fn2r *= WienerFactor; // apply filter on real  part	
 				fn2i *= WienerFactor; // apply filter on imaginary part
 

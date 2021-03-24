@@ -110,20 +110,23 @@
 
 #define VERSION_NUMBER 2.8
 
-//#include "windows.h"
 #include <avisynth.h>
 #include <stdio.h>
 #include <stdint.h>
+#ifdef _WIN32
+#define NOMINMAX
 #include <Windows.h>
+#endif
 #include "math.h"
-//#include "fftw3.h" // replaced by fftwlite.h for dynamic load
-#include "fftwlite.h" // added in v.0.8.4
+#include "fftwlite.h"
 #include "info.h"
 #include <emmintrin.h>
-#include <mmintrin.h> // _mm_empty
+#include <mmintrin.h>
 #include <algorithm>
 #include <atomic>
 #include <mutex>
+
+
 
 // FFTW is not thread-safe, need to guard around its functions (except fftw_execute).
 // http://www.fftw.org/fftw3_doc/Thread-safety.html#Thread-safety
@@ -1160,7 +1163,7 @@ void PlanarPlaneToCoverbuf(const pixel_t *srcp, int src_width, int src_height, i
   {
     for (h = mirh; h < src_height + mirh; h++)
     {
-      env->BitBlt((byte *)(coverbuf1 + mirw), coverpitch*pixelsize, (const byte *)srcp, src_pitch*pixelsize, src_width*pixelsize, 1); // copy line
+      env->BitBlt((uint8_t*)(coverbuf1 + mirw), coverpitch*pixelsize, (const uint8_t*)srcp, src_pitch*pixelsize, src_width*pixelsize, 1); // copy line
       for (w = 0; w < mirw; w++)
       {
         coverbuf1[w] = coverbuf1[mirw + mirw - w]; // mirror left border
@@ -1177,7 +1180,7 @@ void PlanarPlaneToCoverbuf(const pixel_t *srcp, int src_width, int src_height, i
   {
     for (h = mirh; h < src_height / 2 + mirh; h++) // first field
     {
-      env->BitBlt((byte *)(coverbuf1 + mirw), coverpitch*pixelsize, (const byte *)srcp, src_pitch*pixelsize, src_width*pixelsize, 1); // copy line
+      env->BitBlt((uint8_t*)(coverbuf1 + mirw), coverpitch*pixelsize, (const uint8_t*)srcp, src_pitch*pixelsize, src_width*pixelsize, 1); // copy line
       for (w = 0; w < mirw; w++)
       {
         coverbuf1[w] = coverbuf1[mirw + mirw - w]; // mirror left border
@@ -1193,7 +1196,7 @@ void PlanarPlaneToCoverbuf(const pixel_t *srcp, int src_width, int src_height, i
     srcp -= src_pitch;
     for (h = src_height / 2 + mirh; h < src_height + mirh; h++) // flip second field
     {
-      env->BitBlt((byte *)(coverbuf1 + mirw), coverpitch*pixelsize, (const byte *)srcp, src_pitch*pixelsize, src_width*pixelsize, 1); // copy line
+      env->BitBlt((uint8_t*)(coverbuf1 + mirw), coverpitch*pixelsize, (const uint8_t*)srcp, src_pitch*pixelsize, src_width*pixelsize, 1); // copy line
       for (w = 0; w < mirw; w++)
       {
         coverbuf1[w] = coverbuf1[mirw + mirw - w]; // mirror left border
@@ -1210,7 +1213,7 @@ void PlanarPlaneToCoverbuf(const pixel_t *srcp, int src_width, int src_height, i
   pixel_t * pmirror = coverbuf1 - coverpitch * 2; // pointer to vertical mirror
   for (h = src_height + mirh; h < coverheight; h++)
   {
-    env->BitBlt((byte *)coverbuf1, coverpitch*pixelsize, (const byte *)pmirror, coverpitch*pixelsize, coverwidth*pixelsize, 1); // mirror bottom line by line
+    env->BitBlt((uint8_t*)coverbuf1, coverpitch*pixelsize, (const uint8_t*)pmirror, coverpitch*pixelsize, coverwidth*pixelsize, 1); // mirror bottom line by line
     coverbuf1 += coverpitch;
     pmirror -= coverpitch;
   }
@@ -1218,7 +1221,7 @@ void PlanarPlaneToCoverbuf(const pixel_t *srcp, int src_width, int src_height, i
   pmirror = coverbuf1 + coverpitch*mirh * 2; // pointer to vertical mirror
   for (h = 0; h < mirh; h++)
   {
-    env->BitBlt((byte *)coverbuf1, coverpitch*pixelsize, (const byte *)pmirror, coverpitch*pixelsize, coverwidth*pixelsize, 1); // mirror bottom line by line
+    env->BitBlt((uint8_t*)coverbuf1, coverpitch*pixelsize, (const uint8_t*)pmirror, coverpitch*pixelsize, coverwidth*pixelsize, 1); // mirror bottom line by line
     coverbuf1 += coverpitch;
     pmirror -= coverpitch;
   }
@@ -1237,7 +1240,7 @@ void CoverbufToPlanarPlane(const pixel_t *coverbuf, int coverwidth, int coverhei
   {
     for (h = 0; h < dst_height; h++)
     {
-      env->BitBlt((byte *)dstp, dst_pitch*pixelsize, (const byte *)coverbuf1, coverpitch*pixelsize, dst_width*pixelsize, 1); // copy pure frame size only
+      env->BitBlt((uint8_t *)dstp, dst_pitch*pixelsize, (const uint8_t*)coverbuf1, coverpitch*pixelsize, dst_width*pixelsize, 1); // copy pure frame size only
       dstp += dst_pitch;
       coverbuf1 += coverpitch;
     }
@@ -1246,7 +1249,7 @@ void CoverbufToPlanarPlane(const pixel_t *coverbuf, int coverwidth, int coverhei
   {
     for (h = 0; h < dst_height; h += 2)
     {
-      env->BitBlt((byte *)dstp, dst_pitch*pixelsize, (const byte *)coverbuf1, coverpitch*pixelsize, dst_width*pixelsize, 1); // copy pure frame size only
+      env->BitBlt((uint8_t*)dstp, dst_pitch*pixelsize, (const uint8_t*)coverbuf1, coverpitch*pixelsize, dst_width*pixelsize, 1); // copy pure frame size only
       dstp += dst_pitch * 2;
       coverbuf1 += coverpitch;
     }
@@ -1254,7 +1257,7 @@ void CoverbufToPlanarPlane(const pixel_t *coverbuf, int coverwidth, int coverhei
     dstp -= dst_pitch;
     for (h = 0; h < dst_height; h += 2)
     {
-      env->BitBlt((byte *)dstp, dst_pitch*pixelsize, (const byte *)coverbuf1, coverpitch*pixelsize, dst_width*pixelsize, 1); // copy pure frame size only
+      env->BitBlt((uint8_t*)dstp, dst_pitch*pixelsize, (const uint8_t*)coverbuf1, coverpitch*pixelsize, dst_width*pixelsize, 1); // copy pure frame size only
       dstp -= dst_pitch * 2;
       coverbuf1 += coverpitch;
     }
@@ -1671,9 +1674,9 @@ void FFT3DFilter::do_InitOverlapPlane(float * inp0, const BYTE *srcp0, int src_p
 
   float *inp = inp0;
   //	char debugbuf[1536];
-  //	wsprintf(debugbuf,"FFT3DFilter: InitOverlapPlane");
+  //	sprintf(debugbuf,"FFT3DFilter: InitOverlapPlane");
   //	OutputDebugString(debugbuf);
-  typedef std::conditional<sizeof(pixel_t) == 4, float, int>::type cast_t;
+  using cast_t = typename std::conditional<sizeof(pixel_t) == 4, float, int>::type;
   // for float: chroma center is also 0.0
   constexpr cast_t planeBase = sizeof(pixel_t) == 4 ? 0 : cast_t(chroma ? (1 << (bits_per_pixel - 1)) : 0); // anti warning
 
@@ -1922,7 +1925,7 @@ void FFT3DFilter::InitFullWin(float * inp0, float *wanxl, float *wanxr, float *w
 
   float *inp = inp0;
 //	char debugbuf[1536];
-//	wsprintf(debugbuf,"FFT3DFilter: InitOverlapPlane");
+//	sprintf(debugbuf,"FFT3DFilter: InitOverlapPlane");
 //	OutputDebugString(debugbuf);
 
   ihy =0; // first top (big non-overlapped) part
@@ -2283,12 +2286,12 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
   float *inp = inp0;
   int xoffset = bh*bw - (bw - ow);
   int yoffset = bw*nox*bh - bw*(bh - oh); // vertical offset of same block (overlap)
-  typedef std::conditional<sizeof(pixel_t) == 4, float, int>::type cast_t;
+  using cast_t = typename std::conditional<sizeof(pixel_t) == 4, float, int>::type;
 
   constexpr float rounder = sizeof(pixel_t) == 4 ? 0.0f : 0.5f; // v2.6
 
   // for float: chroma center is also 0.0
-  constexpr cast_t planeBase = sizeof(pixel_t) == 4 ? cast_t(chroma ? 0.0f : 0.0f) : cast_t(chroma ? (1 << (bits_per_pixel-1)) : 0); // anti warning
+  constexpr cast_t planeBase = sizeof(pixel_t) == 4 ? cast_t(0) : cast_t(chroma ? (1 << (bits_per_pixel-1)) : 0); // anti warning
 
   // Though float is not clamped.
   constexpr cast_t min_pixel_value = sizeof(pixel_t) == 4 ? cast_t(chroma ? -0.5f : 0.0f) : (cast_t)(0);
@@ -2305,7 +2308,7 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
         if constexpr (sizeof(pixel_t) == 4)
           dstp[w] = inp[w] * norm;
         else
-          dstp[w] = min(max_pixel_value, max(min_pixel_value, (cast_t)(inp[w] * norm + rounder + planeBase)));
+          dstp[w] = std::min(max_pixel_value, std::max(min_pixel_value, (cast_t)(inp[w] * norm + rounder + planeBase)));
       }
       inp += bw - ow;
       dstp += bw - ow;
@@ -2317,7 +2320,7 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
           if constexpr (sizeof(pixel_t) == 4)
             dstp[w] = (inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w]) * norm;
           else
-            dstp[w] = min(max_pixel_value, max(min_pixel_value, (cast_t)((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*norm + rounder + planeBase)));   // overlapped Copy
+            dstp[w] = std::min(max_pixel_value, std::max(min_pixel_value, (cast_t)((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*norm + rounder + planeBase)));   // overlapped Copy
         }
         inp += xoffset + ow;
         dstp += ow;
@@ -2327,7 +2330,7 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
           if constexpr (sizeof(pixel_t) == 4)
             dstp[w] = inp[w] * norm;
           else
-            dstp[w] = min(max_pixel_value, max(min_pixel_value, (cast_t)(inp[w] * norm + rounder + planeBase)));
+            dstp[w] = std::min(max_pixel_value, std::max(min_pixel_value, (cast_t)(inp[w] * norm + rounder + planeBase)));
         }
         inp += bw - ow - ow;
         dstp += bw - ow - ow;
@@ -2337,7 +2340,7 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
         if constexpr (sizeof(pixel_t) == 4)
           dstp[w] = inp[w] * norm;
         else
-          dstp[w] = min(max_pixel_value, max(min_pixel_value, (cast_t)(inp[w] * norm + rounder + planeBase)));
+          dstp[w] = std::min(max_pixel_value, std::max(min_pixel_value, (cast_t)(inp[w] * norm + rounder + planeBase)));
       }
       inp += ow;
       dstp += ow;
@@ -2360,7 +2363,7 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
         if constexpr (sizeof(pixel_t) == 4)
           dstp[w] = inp[w] * wsynyrh + inp[w + yoffset] * wsynylh;
         else
-          dstp[w] = min(max_pixel_value, max(min_pixel_value, (cast_t)((inp[w] * wsynyrh + inp[w + yoffset] * wsynylh) + rounder)+ planeBase));   // y overlapped
+          dstp[w] = std::min(max_pixel_value, std::max(min_pixel_value, (cast_t)((inp[w] * wsynyrh + inp[w + yoffset] * wsynylh) + rounder)+ planeBase));   // y overlapped
       }
       inp += bw - ow;
       dstp += bw - ow;
@@ -2372,7 +2375,7 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
             dstp[w] = (inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w]) * wsynyrh
               + (inp[w + yoffset] * wsynxr[w] + inp[w + xoffset + yoffset] * wsynxl[w]) * wsynylh;
           else
-            dstp[w] = min(max_pixel_value, max(min_pixel_value, (cast_t)(((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*wsynyrh
+            dstp[w] = std::min(max_pixel_value, std::max(min_pixel_value, (cast_t)(((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*wsynyrh
             + (inp[w + yoffset] * wsynxr[w] + inp[w + xoffset + yoffset] * wsynxl[w])*wsynylh) + rounder + planeBase)));   // x overlapped
         }
         inp += xoffset + ow;
@@ -2382,7 +2385,7 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
           if constexpr (sizeof(pixel_t) == 4)
             dstp[w] = inp[w] * wsynyrh + inp[w + yoffset] * wsynylh;
           else
-            dstp[w] = min(max_pixel_value, max(min_pixel_value, (cast_t)((inp[w] * wsynyrh + inp[w + yoffset] * wsynylh) + rounder + planeBase)));
+            dstp[w] = std::min(max_pixel_value, std::max(min_pixel_value, (cast_t)((inp[w] * wsynyrh + inp[w + yoffset] * wsynylh) + rounder + planeBase)));
         }
         inp += bw - ow - ow;
         dstp += bw - ow - ow;
@@ -2392,7 +2395,7 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
         if constexpr (sizeof(pixel_t) == 4)
           dstp[w] = inp[w] * wsynyrh + inp[w + yoffset] * wsynylh;
         else
-          dstp[w] = min(max_pixel_value, max(0, (cast_t)((inp[w] * wsynyrh + inp[w + yoffset] * wsynylh) + rounder + planeBase)));
+          dstp[w] = std::min(max_pixel_value, std::max(0, (cast_t)((inp[w] * wsynyrh + inp[w + yoffset] * wsynylh) + rounder + planeBase)));
       }
       inp += ow;
       dstp += ow;
@@ -2408,7 +2411,7 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
         if constexpr (sizeof(pixel_t) == 4)
           dstp[w] = inp[w] * norm;
         else
-          dstp[w] = min(max_pixel_value, max(min_pixel_value, (cast_t)((inp[w])*norm + rounder + planeBase)));
+          dstp[w] = std::min(max_pixel_value, std::max(min_pixel_value, (cast_t)((inp[w])*norm + rounder + planeBase)));
       }
       inp += bw - ow;
       dstp += bw - ow;
@@ -2419,7 +2422,7 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
           if constexpr (sizeof(pixel_t) == 4)
             dstp[w] = (inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w]) * norm;
           else
-            dstp[w] = min(max_pixel_value, max(min_pixel_value, (cast_t)((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*norm + rounder + planeBase)));   // x overlapped
+            dstp[w] = std::min(max_pixel_value, std::max(min_pixel_value, (cast_t)((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*norm + rounder + planeBase)));   // x overlapped
         }
         inp += xoffset + ow;
         dstp += ow;
@@ -2428,7 +2431,7 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
           if constexpr (sizeof(pixel_t) == 4)
             dstp[w] = inp[w] * norm;
           else
-            dstp[w] = min(max_pixel_value, max(min_pixel_value, (cast_t)(inp[w]*norm + rounder + planeBase)));
+            dstp[w] = std::min(max_pixel_value, std::max(min_pixel_value, (cast_t)(inp[w]*norm + rounder + planeBase)));
         }
         inp += bw - ow - ow;
         dstp += bw - ow - ow;
@@ -2438,7 +2441,7 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
         if constexpr (sizeof(pixel_t) == 4)
           dstp[w] = inp[w] * norm;
         else
-          dstp[w] = min(max_pixel_value, max(min_pixel_value, (cast_t)(inp[w]*norm + rounder + planeBase)));
+          dstp[w] = std::min(max_pixel_value, std::max(min_pixel_value, (cast_t)(inp[w]*norm + rounder + planeBase)));
       }
       inp += ow;
       dstp += ow;
@@ -2458,7 +2461,7 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
         if constexpr (sizeof(pixel_t) == 4)
           dstp[w] = inp[w] * norm;
         else
-          dstp[w] = min(max_pixel_value, max(min_pixel_value, (cast_t)(inp[w] * norm + rounder + planeBase)));
+          dstp[w] = std::min(max_pixel_value, std::max(min_pixel_value, (cast_t)(inp[w] * norm + rounder + planeBase)));
       }
       inp += bw - ow;
       dstp += bw - ow;
@@ -2470,7 +2473,7 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
           if constexpr (sizeof(pixel_t) == 4)
             dstp[w] = (inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w]) * norm;
           else
-            dstp[w] = min(max_pixel_value, max(min_pixel_value, (cast_t)((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*norm + rounder + planeBase)));
+            dstp[w] = std::min(max_pixel_value, std::max(min_pixel_value, (cast_t)((inp[w] * wsynxr[w] + inp[w + xoffset] * wsynxl[w])*norm + rounder + planeBase)));
         }
         inp += xoffset + ow;
         dstp += ow;
@@ -2479,7 +2482,7 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
           if constexpr (sizeof(pixel_t) == 4)
             dstp[w] = inp[w] * norm;
           else
-            dstp[w] = min(max_pixel_value, max(min_pixel_value, (cast_t)(inp[w]*norm + rounder + planeBase)));
+            dstp[w] = std::min(max_pixel_value, std::max(min_pixel_value, (cast_t)(inp[w]*norm + rounder + planeBase)));
         }
         inp += bw - ow - ow;
         dstp += bw - ow - ow;
@@ -2489,7 +2492,7 @@ void FFT3DFilter::do_DecodeOverlapPlane(float *inp0, float norm, BYTE *dstp0, in
         if constexpr (sizeof(pixel_t) == 4)
           dstp[w] = inp[w] * norm;
         else
-          dstp[w] = min(max_pixel_value, max(min_pixel_value, (cast_t)(inp[w] * norm + rounder + planeBase)));
+          dstp[w] = std::min(max_pixel_value, std::max(min_pixel_value, (cast_t)(inp[w] * norm + rounder + planeBase)));
       }
       inp += ow;
       dstp += ow;
@@ -2894,7 +2897,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
   int i;
   int cachecur, cachestart, cachestartold;
   //	char debugbuf[1536];
-  //	wsprintf(debugbuf,"FFT3DFilter: n=%d \n", n);
+  //	sprintf(debugbuf,"FFT3DFilter: n=%d \n", n);
   //	OutputDebugString(debugbuf);
   //	fftwf_complex * tmpoutrez, *tmpoutnext, *tmpoutprev, *tmpoutnext2; // store pointers
   _RPT2(0, "FFT3DFilter GetFrame, frame=%d instance_id=%d\n", n, _instance_id);
@@ -2979,7 +2982,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
     CoverbufToFramePlane(plane, coverbuf, coverwidth, coverheight, coverpitch, dst, vi, mirw, mirh, interlaced, bits_per_pixel, env);
     int psigmaint = ((int)(10 * psigma)) / 10;
     int psigmadec = (int)((psigma - psigmaint) * 10);
-    wsprintf(messagebuf, " frame=%d, px=%d, py=%d, sigma=%d.%d", n, pxf, pyf, psigmaint, psigmadec);
+    sprintf(messagebuf, " frame=%d, px=%d, py=%d, sigma=%d.%d", n, pxf, pyf, psigmaint, psigmadec);
     DrawString(dst, vi, 0, 0, messagebuf);
 
     _RPT2(0, "FFT3DFilter GetFrame END, frame=%d instance_id=%d\n", n, _instance_id);
