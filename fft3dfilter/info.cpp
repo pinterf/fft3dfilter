@@ -1664,57 +1664,6 @@ void DrawString(PVideoFrame &dst, VideoInfo &vi, int x, int y, const char *s)
   }
 }
 
-#if 0
-// original YV12 version, replaced from v2.3
-void DrawDigit(PVideoFrame &dst, int x, int y, int num, int bYUY2)
-{
-  //	const Pixel32 backColor = 0x000000;
-  //	const Pixel32 textColor = 0x00FF00;
-  x = x * 10;
-  y = y * 20;
-
-  int step = bYUY2 + 1;
-
-  int pitch = dst->GetPitch();
-  for (int tx = 0; tx < 10; tx++) {
-    for (int ty = 0; ty < 20; ty++) {
-      unsigned char *dp = &dst->GetWritePtr()[(x + tx) * step + (y + ty) * pitch];
-      if (font[num][ty] & (1 << (15 - tx))) {
-        if (tx & 1) {
-          dp[0] = 250;
-          //					dp[-1] = 128;
-          //					dp[1] = 128;
-        }
-        else {
-          dp[0] = 250;
-          //					dp[1] = 128;
-          //					dp[3] = 128;
-        }
-      }
-      else {
-        if (tx & 1) {
-          dp[0] = (dp[0] * 3) >> 2;
-          //					dp[-1] = (dp[-1] + 128) >> 1;
-          //					dp[1] = (dp[1] + 128) >> 1;
-        }
-        else {
-          dp[0] = (dp[0] * 3) >> 2;
-          //					dp[1] = (dp[1] + 128) >> 1;
-          //					dp[3] = (dp[3] + 128) >> 1;
-        }
-      }
-    }
-  }
-}
-
-void DrawString(PVideoFrame &dst, int x, int y, const char *s, int bYUY2)
-{
-  for (int xx = 0; *s; ++s, ++xx) {
-    DrawDigit(dst, x + xx, y, *s - ' ', bYUY2);
-  }
-}
-#endif
-
 void DrawDigitYUY2(::PVideoFrame &dst, int x, int y, int num) 
 {
 	extern unsigned short font[][20];
