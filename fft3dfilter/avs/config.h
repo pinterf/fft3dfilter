@@ -53,6 +53,10 @@
 #   define ARM64
 #elif defined(_M_ARM) || defined(__arm__)
 #   define ARM32
+#elif defined(__PPC64__)
+#   define PPC64
+#elif defined(_M_PPC) || defined(__PPC__) || defined(__POWERPC__)
+#   define PPC32
 #else
 #   error Unsupported CPU architecture.
 #endif
@@ -97,6 +101,9 @@
 #   define AVS_POSIX
 #elif defined(__APPLE__)
 #   define AVS_MACOS
+#   define AVS_POSIX
+#elif defined(__HAIKU__)
+#   define AVS_HAIKU
 #   define AVS_POSIX
 #else
 #   error Operating system unsupported.

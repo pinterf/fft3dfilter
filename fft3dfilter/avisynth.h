@@ -71,6 +71,10 @@
 #endif
 
 #if defined(AVS_POSIX)
+#if defined(AVS_HAIKU)
+#undef __stdcall
+#undef __cdecl
+#endif
 #define __stdcall
 #define __cdecl
 #endif
@@ -416,7 +420,7 @@ struct AVS_Linkage {
   // this part should be identical with AVS_Linkage entries in interface.cpp
 };
 
-#ifdef BUILDING_AVSCORE
+#if defined(BUILDING_AVSCORE) || defined(AVS_STATIC_LIB)
 /* Macro resolution for code inside Avisynth.dll */
 # define AVS_BakedCode(arg) ;
 # define AVS_LinkCall(arg)
@@ -1674,6 +1678,7 @@ public:
 // share the same ScriptEnvironment instance. The function with the same signature
 // is exactly identical and there is no limitation to switch interfaces.
 // You can use any interface you like.
+// Note to plugin authors : The interface is not stable, see comments in IScriptEnvironment2
 class INeoEnv {
 public:
   virtual ~INeoEnv() {}
@@ -1693,9 +1698,7 @@ public:
 
   // Generic system to ask for various properties
   virtual size_t  __stdcall GetEnvProperty(AvsEnvProperty prop) = 0;
-#ifdef INTEL_INTRINSICS
   virtual int __stdcall GetCPUFlags() = 0;
-#endif
 
   // Plugin functions
   virtual bool __stdcall LoadPlugin(const char* filePath, bool throwOnError, AVSValue *result) = 0;
@@ -1759,7 +1762,7 @@ public:
   virtual void __stdcall PopContextGlobal() = 0;
 
   // Allocate new video frame
-  // Align parameter is no longer supported
+  // in PNeoEnv: align parameter is no longer supported
   virtual PVideoFrame __stdcall NewVideoFrame(const VideoInfo& vi) = 0; // current device is used
   virtual PVideoFrame __stdcall NewVideoFrame(const VideoInfo& vi, const PDevice& device) = 0;
   // as above but with property sources
@@ -1858,7 +1861,7 @@ struct PNeoEnv {
   INeoEnv* p;
   PNeoEnv() : p() { }
   PNeoEnv(IScriptEnvironment* env)
-#ifdef BUILDING_AVSCORE
+#if defined(BUILDING_AVSCORE) || defined(AVS_STATIC_LIB)
     ;
 #else
   : p(!AVS_linkage || offsetof(AVS_Linkage, GetNeoEnv) >= AVS_linkage->Size ? 0 : AVS_linkage->GetNeoEnv(env)) { }
