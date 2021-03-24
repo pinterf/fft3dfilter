@@ -486,6 +486,8 @@ class FFT3DFilter : public GenericVideoFilter {
   float psigma;
   char *messagebuf;
 
+  FFTFunctionPointers fftfp;
+/*
   // added in v.0.9 for delayed FFTW3.DLL loading
   HINSTANCE hinstLib;
   fftwf_malloc_proc fftwf_malloc;
@@ -497,7 +499,7 @@ class FFT3DFilter : public GenericVideoFilter {
   fftwf_execute_dft_c2r_proc fftwf_execute_dft_c2r;
   fftwf_init_threads_proc fftwf_init_threads;
   fftwf_plan_with_nthreads_proc fftwf_plan_with_nthreads;
-
+*/
   int CPUFlags;
 
   // avs+
@@ -727,6 +729,15 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
 
   int istat;
 
+  try {
+    fftfp.load(nullptr /*fftfp_preloaded.library*/); // use existing
+  }
+  catch (const std::exception& e)
+  {
+    throw AvisynthError(e.what());
+  }
+
+  /*
   hinstLib = LoadLibrary("libfftw3f-3.dll"); // PF full original name
   if (hinstLib == NULL)
     hinstLib = LoadLibrary("fftw3.dll"); // added in v 0.8.4 for delayed loading
@@ -749,7 +760,7 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   if (istat == 0 || hinstLib == NULL || fftwf_free == NULL || fftwf_malloc == NULL || fftwf_plan_many_dft_r2c == NULL ||
     fftwf_plan_many_dft_c2r == NULL || fftwf_destroy_plan == NULL || fftwf_execute_dft_r2c == NULL || fftwf_execute_dft_c2r == NULL)
     env->ThrowError("FFT3DFilter: libfftw3f-3.dll or fftw3.dll not found. Please put in PATH or use LoadDll() plugin");
-
+  */
 
   coverwidth = nox*(bw - ow) + ow;
   coverheight = noy*(bh - oh) + oh;
@@ -760,7 +771,7 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
     std::lock_guard<std::mutex> lock(fftw_mutex);
 
     int insize = bw * bh * nox * noy;
-    in = (float*)fftwf_malloc(sizeof(float) * insize);
+    in = (float*)fftfp.fftwf_malloc(sizeof(float) * insize);
     outwidth = bw / 2 + 1; // width (pitch) of complex fft block
     outpitch = ((outwidth + 1) / 2) * 2; // must be even for SSE - v1.7
     outsize = outpitch * bh * nox * noy; // replace outwidth to outpitch here and below in v1.7
@@ -773,20 +784,20 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   //		outprev2 = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * outsize);
     if (bt == 0) // Kalman
     {
-      outLast = (fftwf_complex*)fftwf_malloc(sizeof(fftwf_complex) * outsize);
-      covar = (fftwf_complex*)fftwf_malloc(sizeof(fftwf_complex) * outsize);
-      covarProcess = (fftwf_complex*)fftwf_malloc(sizeof(fftwf_complex) * outsize);
+      outLast = (fftwf_complex*)fftfp.fftwf_malloc(sizeof(fftwf_complex) * outsize);
+      covar = (fftwf_complex*)fftfp.fftwf_malloc(sizeof(fftwf_complex) * outsize);
+      covarProcess = (fftwf_complex*)fftfp.fftwf_malloc(sizeof(fftwf_complex) * outsize);
     }
-    outrez = (fftwf_complex*)fftwf_malloc(sizeof(fftwf_complex) * outsize); //v1.8
-    gridsample = (fftwf_complex*)fftwf_malloc(sizeof(fftwf_complex) * outsize); //v1.8
+    outrez = (fftwf_complex*)fftfp.fftwf_malloc(sizeof(fftwf_complex) * outsize); //v1.8
+    gridsample = (fftwf_complex*)fftfp.fftwf_malloc(sizeof(fftwf_complex) * outsize); //v1.8
 
     // fft cache - added in v1.8
     cachesize = bt + 2;
     cachewhat = (int*)malloc(sizeof(int) * cachesize);
-    cachefft = (fftwf_complex**)fftwf_malloc(sizeof(fftwf_complex*) * cachesize);
+    cachefft = (fftwf_complex**)fftfp.fftwf_malloc(sizeof(fftwf_complex*) * cachesize);
     for (i = 0; i < cachesize; i++)
     {
-      cachefft[i] = (fftwf_complex*)fftwf_malloc(sizeof(fftwf_complex) * outsize);
+      cachefft[i] = (fftwf_complex*)fftfp.fftwf_malloc(sizeof(fftwf_complex) * outsize);
       cachewhat[i] = -1; // init as notexistant
     }
   }
@@ -817,19 +828,23 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
 
   {
     std::lock_guard<std::mutex> lock(fftw_mutex);
-    fftwf_plan_with_nthreads(ncpu);
 
-    plan = fftwf_plan_many_dft_r2c(rank, ndim, howmanyblocks,
+    if (ncpu > 1 && fftfp.has_threading()) {
+      fftfp.fftwf_init_threads();
+      fftfp.fftwf_plan_with_nthreads(ncpu);
+    }
+
+    plan = fftfp.fftwf_plan_many_dft_r2c(rank, ndim, howmanyblocks,
       in, inembed, istride, idist, outrez, onembed, ostride, odist, planFlags);
     if (plan == NULL)
       env->ThrowError("FFT3DFilter: FFTW plan error");
 
-    planinv = fftwf_plan_many_dft_c2r(rank, ndim, howmanyblocks,
+    planinv = fftfp.fftwf_plan_many_dft_c2r(rank, ndim, howmanyblocks,
       outrez, onembed, ostride, odist, in, inembed, istride, idist, planFlags);
     if (planinv == NULL)
       env->ThrowError("FFT3DFilter: FFTW plan error");
 
-    fftwf_plan_with_nthreads(1);
+    fftfp.fftwf_plan_with_nthreads(1);
   }
 
   wanxl = (float*)malloc(ow * sizeof(float));
@@ -844,8 +859,8 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
 
   {
     std::lock_guard<std::mutex> lock(fftw_mutex);
-    wsharpen = (float*)fftwf_malloc(bh * outpitch * sizeof(float));
-    wdehalo = (float*)fftwf_malloc(bh * outpitch * sizeof(float));
+    wsharpen = (float*)fftfp.fftwf_malloc(bh * outpitch * sizeof(float));
+    wdehalo = (float*)fftfp.fftwf_malloc(bh * outpitch * sizeof(float));
   }
 
   // define analysis and synthesis windows
@@ -1023,8 +1038,8 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
 
   {
     std::lock_guard<std::mutex> lock(fftw_mutex);
-    pattern2d = (float*)fftwf_malloc(bh * outpitch * sizeof(float)); // noise pattern window array
-    pattern3d = (float*)fftwf_malloc(bh * outpitch * sizeof(float)); // noise pattern window array
+    pattern2d = (float*)fftfp.fftwf_malloc(bh * outpitch * sizeof(float)); // noise pattern window array
+    pattern3d = (float*)fftfp.fftwf_malloc(bh * outpitch * sizeof(float)); // noise pattern window array
   }
 
   if ((sigma2 != sigma || sigma3 != sigma || sigma4 != sigma) && pfactor == 0)
@@ -1044,7 +1059,7 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   // Attention: other block could be the same, but we do not calculate them!
   {
     std::lock_guard<std::mutex> lock(fftw_mutex);
-    plan1 = fftwf_plan_many_dft_r2c(rank, ndim, 1,
+    plan1 = fftfp.fftwf_plan_many_dft_r2c(rank, ndim, 1,
       in, inembed, istride, idist, outrez, onembed, ostride, odist, planFlags); // 1 block
   }
 
@@ -1059,7 +1074,7 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   }
   FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, false);
   // make FFT 2D
-  fftwf_execute_dft_r2c(plan1, in, gridsample);
+  fftfp.fftwf_execute_dft_r2c(plan1, in, gridsample);
 
   messagebuf = (char *)malloc(80); //1.8.5
 
@@ -1076,10 +1091,10 @@ FFT3DFilter::~FFT3DFilter() {
   // This is where you can deallocate any memory you might have used.
   {
     std::lock_guard<std::mutex> lock(fftw_mutex);
-    fftwf_destroy_plan(plan);
-    fftwf_destroy_plan(plan1);
-    fftwf_destroy_plan(planinv);
-    fftwf_free(in);
+    fftfp.fftwf_destroy_plan(plan);
+    fftfp.fftwf_destroy_plan(plan1);
+    fftfp.fftwf_destroy_plan(planinv);
+    fftfp.fftwf_free(in);
     //	fftwf_free(out);
     free(wanxl);
     free(wanxr);
@@ -1089,33 +1104,33 @@ FFT3DFilter::~FFT3DFilter() {
     free(wsynxr);
     free(wsynyl);
     free(wsynyr);
-    fftwf_free(wsharpen);
-    fftwf_free(wdehalo);
+    fftfp.fftwf_free(wsharpen);
+    fftfp.fftwf_free(wdehalo);
     free(mean);
     free(pwin);
-    fftwf_free(pattern2d);
-    fftwf_free(pattern3d);
+    fftfp.fftwf_free(pattern2d);
+    fftfp.fftwf_free(pattern3d);
     //	if (bt >= 2)
     //		fftwf_free(outprev);
     //	if (bt >= 3)
     //		fftwf_free(outnext);
     //	if (bt >= 4)
     //		fftwf_free(outprev2);
-    fftwf_free(outrez);
+    fftfp.fftwf_free(outrez);
     if (bt == 0) // Kalman
     {
-      fftwf_free(outLast);
-      fftwf_free(covar);
-      fftwf_free(covarProcess);
+      fftfp.fftwf_free(outLast);
+      fftfp.fftwf_free(covar);
+      fftfp.fftwf_free(covarProcess);
     }
     free(coverbuf);
     free(cachewhat);
     for (int i = 0; i < cachesize; i++)
     {
-      fftwf_free(cachefft[i]);
+      fftfp.fftwf_free(cachefft[i]);
     }
-    fftwf_free(cachefft);
-    fftwf_free(gridsample); //fixed memory leakage in v1.8.5
+    fftfp.fftwf_free(cachefft);
+    fftfp.fftwf_free(gridsample); //fixed memory leakage in v1.8.5
   //	fftwf_free(fullwinan);
   //	fftwf_free(fullwinsyn);
   //	fftwf_free(shiftedprev);
@@ -1127,9 +1142,7 @@ FFT3DFilter::~FFT3DFilter() {
   //	free(xshifts);
   //	free(yshifts);
   }
-
-  if (hinstLib != NULL)
-    FreeLibrary(hinstLib);
+  fftfp.freelib();
   free(messagebuf); //v1.8.5
 }
 //-----------------------------------------------------------------------
@@ -1663,7 +1676,6 @@ void FFT3DFilter::do_InitOverlapPlane(float * inp0, const BYTE *srcp0, int src_p
   typedef std::conditional<sizeof(pixel_t) == 4, float, int>::type cast_t;
   // for float: chroma center is also 0.0
   constexpr cast_t planeBase = sizeof(pixel_t) == 4 ? 0 : cast_t(chroma ? (1 << (bits_per_pixel - 1)) : 0); // anti warning
-  constexpr cast_t max_pixel_value = sizeof(pixel_t) == 4 ? (pixel_t)1 : (pixel_t)((1 << _bits_per_pixel) - 1);
 
   ihy = 0; // first top (big non-overlapped) part
   {
@@ -2908,7 +2920,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
     FramePlaneToCoverbuf(plane, psrc, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
     FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma);
     // make FFT 2D
-    fftwf_execute_dft_r2c(plan, in, outrez);
+    fftfp.fftwf_execute_dft_r2c(plan, in, outrez);
     if (px == 0 && py == 0) // try find pattern block with minimal noise sigma
       FindPatternBlock(outrez, outwidth, outpitch, bh, nox, noy, px, py, pwin, degrid, gridsample);
     SetPattern(outrez, outwidth, outpitch, bh, nox, noy, px, py, pwin, pattern2d, psigma, degrid, gridsample);
@@ -2929,7 +2941,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
     FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
     FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma);
     // make FFT 2D
-    fftwf_execute_dft_r2c(plan, in, outrez);
+    fftfp.fftwf_execute_dft_r2c(plan, in, outrez);
     if (px == 0 && py == 0) // try find pattern block with minimal noise sigma
       FindPatternBlock(outrez, outwidth, outpitch, bh, nox, noy, pxf, pyf, pwin, degrid, gridsample);
     else
@@ -2956,11 +2968,11 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
     FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
     FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma2);
     // make FFT 2D
-    fftwf_execute_dft_r2c(plan, in, outrez);
+    fftfp.fftwf_execute_dft_r2c(plan, in, outrez);
 
     PutPatternOnly(outrez, outwidth, outpitch, bh, nox, noy, pxf, pyf);
     // do inverse 2D FFT, get filtered 'in' array
-    fftwf_execute_dft_c2r(planinv, outrez, in);
+    fftfp.fftwf_execute_dft_c2r(planinv, outrez, in);
 
     // make destination frame plane from current overlaped blocks
     FFT3DFilter::DecodeOverlapPlane(in, norm, coverbuf, coverpitch, plane_is_chroma2);
@@ -3024,7 +3036,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma);
       //			FFT3DFilter::InitOverlapPlaneWin(in, coverbuf,  coverpitch, planeBase, fullwinan); // slower
             // make FFT 2D
-      fftwf_execute_dft_r2c(plan, in, outrez);
+      fftfp.fftwf_execute_dft_r2c(plan, in, outrez);
       if (degrid != 0)
       {
         if (pfactor != 0)
@@ -3047,7 +3059,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       }
 
       // do inverse FFT 2D, get filtered 'in' array
-      fftwf_execute_dft_c2r(planinv, outrez, in);
+      fftfp.fftwf_execute_dft_c2r(planinv, outrez, in);
     }
     else if (btcur == 2)  // 3D2
     {
@@ -3062,7 +3074,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
         FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
         FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma);
         // make FFT 2D
-        fftwf_execute_dft_r2c(plan, in, out);
+        fftfp.fftwf_execute_dft_r2c(plan, in, out);
         cachewhat[cachecur] = n;
       }
       // prev frame
@@ -3079,7 +3091,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
         // calculate prev
         FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma);
         // make FFT 2D
-        fftwf_execute_dft_r2c(plan, in, outprev);
+        fftfp.fftwf_execute_dft_r2c(plan, in, outprev);
         cachewhat[cachecur - 1] = n - 1;
       }
       if (n != nlast + 1)//(not direct sequential access)
@@ -3113,7 +3125,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       }
       // do inverse FFT 3D, get filtered 'in' array
       // note: input "outrez" array is destroyed by execute algo.
-      fftwf_execute_dft_c2r(planinv, outrez, in);
+      fftfp.fftwf_execute_dft_c2r(planinv, outrez, in);
     }
     else if (btcur == 3) // 3D3
     {
@@ -3128,7 +3140,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
         FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
         FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma);
         // make FFT 2D
-        fftwf_execute_dft_r2c(plan, in, out);
+        fftfp.fftwf_execute_dft_r2c(plan, in, out);
         cachewhat[cachecur] = n;
       }
       // prev frame
@@ -3145,7 +3157,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       {
         FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma);
         // make FFT 2D
-        fftwf_execute_dft_r2c(plan, in, outprev);
+        fftfp.fftwf_execute_dft_r2c(plan, in, outprev);
         cachewhat[cachecur - 1] = n - 1;
       }
       if (n != nlast + 1)
@@ -3174,7 +3186,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       {
         FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma);
         // make FFT 2D
-        fftwf_execute_dft_r2c(plan, in, outnext);
+        fftfp.fftwf_execute_dft_r2c(plan, in, outnext);
         cachewhat[cachecur + 1] = n + 1;
       }
       if (degrid != 0)
@@ -3195,7 +3207,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       }
       // do inverse FFT 2D, get filtered 'in' array
       // note: input "outrez" array is destroyed by execute algo.
-      fftwf_execute_dft_c2r(planinv, outrez, in);
+      fftfp.fftwf_execute_dft_c2r(planinv, outrez, in);
     }
     else if (btcur == 4) // 3D4
     {
@@ -3211,7 +3223,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
         FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
         FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma);
         // make FFT 2D
-        fftwf_execute_dft_r2c(plan, in, out);
+        fftfp.fftwf_execute_dft_r2c(plan, in, out);
         cachewhat[cachecur] = n;
       }
       // prev2 frame
@@ -3228,7 +3240,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       {
         FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma);
         // make FFT 2D
-        fftwf_execute_dft_r2c(plan, in, outprev2);
+        fftfp.fftwf_execute_dft_r2c(plan, in, outprev2);
         cachewhat[cachecur - 2] = n - 2;
       }
       if (n != nlast + 1)
@@ -3257,7 +3269,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       {
         FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma);
         // make FFT 2D
-        fftwf_execute_dft_r2c(plan, in, outprev);
+        fftfp.fftwf_execute_dft_r2c(plan, in, outprev);
         cachewhat[cachecur - 1] = n - 1;
       }
       // next frame
@@ -3273,7 +3285,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       {
         FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma);
         // make FFT 2D
-        fftwf_execute_dft_r2c(plan, in, outnext);
+        fftfp.fftwf_execute_dft_r2c(plan, in, outnext);
         cachewhat[cachecur + 1] = n + 1;
       }
       if (degrid != 0)
@@ -3294,7 +3306,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       }
       // do inverse FFT 2D, get filtered 'in' array
       // note: input "outrez" array is destroyed by execute algo.
-      fftwf_execute_dft_c2r(planinv, outrez, in);
+      fftfp.fftwf_execute_dft_c2r(planinv, outrez, in);
     }
     else if (btcur == 5) // 3D5
     {
@@ -3310,7 +3322,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
         FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
         FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma);
         // make FFT 2D
-        fftwf_execute_dft_r2c(plan, in, out);
+        fftfp.fftwf_execute_dft_r2c(plan, in, out);
         cachewhat[cachecur] = n;
       }
       // prev2 frame
@@ -3325,7 +3337,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       {
         FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma);
         // make FFT 2D
-        fftwf_execute_dft_r2c(plan, in, outprev2);
+        fftfp.fftwf_execute_dft_r2c(plan, in, outprev2);
         cachewhat[cachecur - 2] = n - 2;
       }
       if (n != nlast + 1)
@@ -3352,7 +3364,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       {
         FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma);
         // make FFT 2D
-        fftwf_execute_dft_r2c(plan, in, outprev);
+        fftfp.fftwf_execute_dft_r2c(plan, in, outprev);
         cachewhat[cachecur - 1] = n - 1;
       }
       // next frame
@@ -3366,7 +3378,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       {
         FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma);
         // make FFT 2D
-        fftwf_execute_dft_r2c(plan, in, outnext);
+        fftfp.fftwf_execute_dft_r2c(plan, in, outnext);
         cachewhat[cachecur + 1] = n + 1;
       }
       // next2 frame
@@ -3380,7 +3392,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       {
         FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma);
         // make FFT 2D
-        fftwf_execute_dft_r2c(plan, in, outnext2);
+        fftfp.fftwf_execute_dft_r2c(plan, in, outnext2);
         cachewhat[cachecur + 2] = n + 2;
       }
       if (degrid != 0)
@@ -3401,7 +3413,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
       }
       // do inverse FFT 2D, get filtered 'in' array
       // note: input "outrez" array is destroyed by execute algo.
-      fftwf_execute_dft_c2r(planinv, outrez, in);
+      fftfp.fftwf_execute_dft_c2r(planinv, outrez, in);
     }
     // make destination frame plane from current overlaped blocks
     FFT3DFilter::DecodeOverlapPlane(in, norm, coverbuf, coverpitch, plane_is_chroma);
@@ -3429,7 +3441,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
     FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
     FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma);
     // make FFT 2D
-    fftwf_execute_dft_r2c(plan, in, outrez);
+    fftfp.fftwf_execute_dft_r2c(plan, in, outrez);
     if (pfactor != 0)
       ApplyKalmanPattern(outrez, outLast, covar, covarProcess, outwidth, outpitch, bh, howmanyblocks, pattern2d, kratio*kratio, CPUFlags);
     else
@@ -3444,7 +3456,7 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
     // do inverse FFT 2D, get filtered 'in' array
     // note: input "out" array is destroyed by execute algo.
     // that is why we must have its copy in "outLast" array
-    fftwf_execute_dft_c2r(planinv, outrez, in);
+    fftfp.fftwf_execute_dft_c2r(planinv, outrez, in);
     // make destination frame plane from current overlaped blocks
     FFT3DFilter::DecodeOverlapPlane(in, norm, coverbuf, coverpitch, plane_is_chroma);
     CoverbufToFramePlane(plane, coverbuf, coverwidth, coverheight, coverpitch, dst, vi, mirw, mirh, interlaced, bits_per_pixel, env);
@@ -3457,13 +3469,13 @@ PVideoFrame __stdcall FFT3DFilter::GetFrame(int n, IScriptEnvironment* env) {
     FramePlaneToCoverbuf(plane, src, vi, coverbuf, coverwidth, coverheight, coverpitch, mirw, mirh, interlaced, bits_per_pixel, env);
     FFT3DFilter::InitOverlapPlane(in, coverbuf, coverpitch, plane_is_chroma);
     // make FFT 2D
-    fftwf_execute_dft_r2c(plan, in, outrez);
+    fftfp.fftwf_execute_dft_r2c(plan, in, outrez);
     if (degrid != 0)
       Sharpen_degrid(outrez, outwidth, outpitch, bh, howmanyblocks, sharpen, sigmaSquaredSharpenMinNormed, sigmaSquaredSharpenMaxNormed, wsharpen, degrid, gridsample, dehalo, wdehalo, ht2n, CPUFlags);
     else
       Sharpen(outrez, outwidth, outpitch, bh, howmanyblocks, sharpen, sigmaSquaredSharpenMinNormed, sigmaSquaredSharpenMaxNormed, wsharpen, dehalo, wdehalo, ht2n, CPUFlags);
     // do inverse FFT 2D, get filtered 'in' array
-    fftwf_execute_dft_c2r(planinv, outrez, in);
+    fftfp.fftwf_execute_dft_c2r(planinv, outrez, in);
     // make destination frame plane from current overlaped blocks
     FFT3DFilter::DecodeOverlapPlane(in, norm, coverbuf, coverpitch, plane_is_chroma);
     CoverbufToFramePlane(plane, coverbuf, coverwidth, coverheight, coverpitch, dst, vi, mirw, mirh, interlaced, bits_per_pixel, env);
