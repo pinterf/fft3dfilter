@@ -235,124 +235,134 @@ void ApplyWiener3D2_SSE_simd(fftwf_complex *outcur, fftwf_complex *outprev,
   }
 }
 
-#if 0
-// ported to simd PF 170302
-void ApplyWiener3D2_SSE(fftwf_complex *outcur, fftwf_complex *outprev, 
-						int outwidth, int outpitch, int bh, int howmanyblocks, 
-						float sigmaSquaredNoiseNormed, float beta)
+inline __m128 _mm_swap_re_im(__m128 x)
 {
-	//  optimized for SSE assembler
-	// return result in outprev
-	float lowlimit = (beta-1)/beta; //     (beta-1)/beta>=0
-//	float psd;
-//	float WienerFactor;
-//	float f3d0r, f3d1r, f3d0i, f3d1i;
-//	int block;
-//	int h,w;
-	float smallf = 1e-15f;
-	float onehalf = 0.5f;
-	int totalbytes = howmanyblocks*bh*outpitch*8;
-
-#ifndef X86_64
-
-//	for (block=0; block <howmanyblocks; block++)
-//	{
-//		for (h=0; h<bh; h++)  
-//		{
-//			for (w=0; w<outwidth; w++) 
-//			{
-		__asm
-		{
-			emms;
-			mov edi, outprev;
-			mov esi, outcur; // current
-			mov ecx, totalbytes; // counter
-			movss xmm7, smallf;
-			shufps xmm7, xmm7, 0 ;// xmm7 = smallf
-			movss xmm6, sigmaSquaredNoiseNormed;
-			shufps xmm6, xmm6, 0 ; // xmm6 = sigmaSquaredNoiseNormed
-			movss xmm5, lowlimit;
-			shufps xmm5, xmm5, 0; // xmm5 =lowlimit
-			movss xmm4, onehalf;
-			shufps xmm4, xmm4, 0; // xmm4 =onehalf
-			mov eax, 0;
-align 16
-nextnumber:
-				// take two complex numbers
-				movaps xmm0, [edi+eax]; // xmm0=prev real | img
-				movaps xmm2, xmm0;
-				movaps xmm1, [esi+eax]; // xmm1=cur real | img 
-//				f3d0r =  outcur[w][0] + outprev[w][0]; // real 0 (sum)
-//				f3d0i =  outcur[w][1] + outprev[w][1]; // im 0 (sum)
-				addps xmm2, xmm1; // xmm2 =sum
-
-//				f3d1r =  outcur[w][0] - outprev[w][0]; // real 1 (dif)
-//				f3d1i =  outcur[w][1] - outprev[w][1]; // im 1 (dif)
-				movaps xmm3, xmm1;
-				subps xmm3, xmm0;
-				movaps xmm0, xmm3;
-				// xmm0= dif  xmm1-xmm0 = cur-prev
-
-				movaps xmm1, xmm2; // copy sum
-				mulps xmm1, xmm1; // xmm1 =sumre*sumre | sumin*sumim
-				movaps xmm3, xmm1; //copy
-//				pswapd mm3, mm3; // swap re & im
-				shufps xmm3, xmm3, (1 + 0 + 48 + 128);// swap re & im
-				addps xmm1, xmm3; // xmm1 = sumre*sumre + sumim*sumim
-//				psd = f3d0r*f3d0r + f3d0i*f3d0i + 1e-15f; // power spectrum density 0
-				addps xmm1, xmm7; // xmm1 = psd of sum = sumre*sumre + sumim*sumim + smallf
-				
-				movaps xmm3, xmm1; // xmm3 =copy psd
-				subps xmm3, xmm6; // xmm3= psd - sigma
-				rcpps xmm1, xmm1; // xmm1= 1/psd // bug fixed in v.0.9.3
-				mulps xmm3, xmm1; //  (psd-sigma)/psd
-//				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
-				maxps xmm3, xmm5; // xmm3 =wienerfactor
-//				f3d0r *= WienerFactor; // apply filter on real  part	
-//				f3d0i *= WienerFactor; // apply filter on imaginary part
-				mulps xmm2, xmm3; // xmm2 = final wiener sum f3d0
-
-
-
-				movaps xmm1, xmm0; // copy dif
-				mulps xmm1, xmm1; // xmm1 = difre*difre | difim*difim
-				movaps xmm3, xmm1; // copy
-//				pswapd mm3, mm3;
-				shufps xmm3, xmm3, (1 + 0 + 48 + 128);// swap re & im
-				addps xmm1, xmm3;
-//				psd = f3d1r*f3d1r + f3d1i*f3d1i + 1e-15f; // power spectrum density 1
-				addps xmm1, xmm7; // mm3 = psd of dif
-
-				movaps xmm3, xmm1; //copy of psd
-				subps xmm3, xmm6; // xmm3= psd - sigma
-				rcpps xmm1, xmm1; // xmm1= 1/psd // bug fixed in v.0.9.3
-				mulps xmm3, xmm1; //  (psd-sigma)/psd
-//				WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
-				maxps xmm3, xmm5; // xmm3 =wienerfactor
-//				f3d1r *= WienerFactor; // apply filter on real  part	
-//				f3d1i *= WienerFactor; // apply filter on imaginary part
-				mulps xmm0, xmm3; // xmm0 = fimal wiener dif f3d1
-
-				// reverse dft for 2 points
-				addps xmm2, xmm0; // filterd sum + dif
-//				outprev[w][0] = (f3d0r + f3d1r)*0.5f; // get  real  part	
-//				outprev[w][1] = (f3d0i + f3d1i)*0.5f; // get imaginary part
-				mulps xmm2, xmm4; // filterd (sum+dif)*0.5
-				movaps [edi+eax], xmm2;
-				// Attention! return filtered "outcur" in "outprev" to preserve "outcur" for next step
-			
-//			outcur += outpitch;
-//			outprev += outpitch;
-//		}
-				add eax, 16; // the lastest number may be skipped
-				cmp eax, ecx;
-				jge finish;
-				jmp nextnumber;
-finish:			emms;
-		}
-#endif // !x64
+  return  _mm_shuffle_ps(x, x, _MM_SHUFFLE(2, 3, 0, 1));
 }
-#endif
+
+void ApplyWiener3D4_SSE_simd(fftwf_complex* outcur, fftwf_complex* outprev2,
+  fftwf_complex* outprev, fftwf_complex* outnext,
+  int outwidth, int outpitch, int bh, int howmanyblocks,
+  float sigmaSquaredNoiseNormed, float beta)
+{
+  // dft 3d (very short - 3 points)
+  // return result in outprev
+  // float fcr, fci, fpr, fpi, fnr, fni;
+  // float pnr, pni, di, dr;
+  // float WienerFactor =1;
+  // float psd;
+  float lowlimit = (beta - 1) / beta; //     (beta-1)/beta>=0
+  float smallf = 1e-15f;
+  float onefourth = 0.25f;
+
+  auto lowlimit_ps = _mm_set1_ps(lowlimit);
+  auto smallf_ps = _mm_set1_ps(smallf);
+  auto onefourth_ps = _mm_set1_ps(onefourth);
+  auto sigmaSquaredNoiseNormed_ps = _mm_set1_ps(sigmaSquaredNoiseNormed);
+  // int block;
+  // int h,w;
+
+  int totalbytes = howmanyblocks * bh * outpitch * 8;
+
+  for (int eax = 0; eax < totalbytes; eax += 8)
+  {
+
+    auto prev2 = _mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<__m128i*>((uint8_t*)outprev2 + eax))); // mm0=prev2 real | img
+    auto prev = _mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<__m128i*>((uint8_t*)outprev + eax))); // mm1=prev real | img
+    auto cur = _mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<__m128i*>((uint8_t*)outcur + eax))); // mm2=cur real | img
+    auto next = _mm_castsi128_ps(_mm_loadl_epi64(reinterpret_cast<__m128i*>((uint8_t*)outnext + eax))); // mm3=next real | img 
+
+    // dft 3d (very short - 4 points)
+    /*
+        fpr = -outprev2[w][0] + outprev[w][1] + outcur[w][0] - outnext[w][1]; // real prev
+        fpi = -outprev2[w][1] - outprev[w][0] + outcur[w][1] + outnext[w][0]; // im cur
+        fcr = outprev2[w][0] + outprev[w][0] + outcur[w][0] + outnext[w][0]; // real cur
+        fci = outprev2[w][1] + outprev[w][1] + outcur[w][1] + outnext[w][1]; // im cur
+        fnr = -outprev2[w][0] - outprev[w][1] + outcur[w][0] + outnext[w][1]; // real next
+        fni = -outprev2[w][1] + outprev[w][0] + outcur[w][1] - outnext[w][0]; // im next
+        fp2r = outprev2[w][0] - outprev[w][0] + outcur[w][0] - outnext[w][0]; // real prev2
+        fp2i = outprev2[w][1] - outprev[w][1] + outcur[w][1] - outnext[w][1]; // im cur
+
+    */
+    // get useful combination
+    auto mm4 = _mm_sub_ps(prev, next); // Re(prev-next) | Im(prev-next)
+    auto mm5 = _mm_sub_ps(next, prev); // Re(next-prev) | Im(next-prev)
+    mm5 =  _mm_swap_re_im(mm5); // swap re & im: Im(next-prev) | Re(next-prev)
+    auto pn_comb = _mm_unpacklo_ps(mm5, mm4); // use low dwords:   Im(next-prev) | Re(prev-next)
+
+    // fpr = -outprev2[w][0] + outprev[w][1] + out[w][0] - outnext[w][1]; // real prev
+    // fpi = -outprev2[w][1] - outprev[w][0] + out[w][1] + outnext[w][0]; // im cur
+    auto fp = _mm_add_ps(_mm_sub_ps(cur, prev2), pn_comb); // fp = Re(cur-prev2) - Im(next-prev) | Im(cur-prev) - Re(prev-next)
+    mm5 = _mm_mul_ps(fp, fp); // fpr*fpr | fpi*fpi
+    mm5 = _mm_add_ps(mm5, _mm_swap_re_im(mm5)); // fpr*fpr + fpi*fpi
+    auto psd = _mm_add_ps(mm5, smallf_ps); // psd = fpr*fpr + fpi*fpi + 1e-15f; // power spectrum density prev
+    mm5 = _mm_div_ps(_mm_sub_ps(psd, sigmaSquaredNoiseNormed_ps), psd); // (psd-sigma)/psd
+    auto wienerfactor = _mm_max_ps(mm5, lowlimit_ps); // wienerfactor
+    // WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+    // fpr *= WienerFactor; // apply filter on real part
+    // fpi *= WienerFactor; // apply filter on imaginary part
+
+    auto mm6 = _mm_mul_ps(fp, wienerfactor); // fp final
+
+    auto final_sum = mm6;
+
+    // fnr = -outprev2[w][0] - outprev[w][1] + out[w][0] + outnext[w][1]; // real next
+    // fni = -outprev2[w][1] + outprev[w][0] + out[w][1] - outnext[w][0]; // im next
+    auto fn = _mm_sub_ps(_mm_sub_ps(cur, prev2), pn_comb); // fn = Re(cur-prev2) + Im(next-prev) | Im(cur-prev) + Re(prev-next)
+    mm5 = _mm_mul_ps(fn, fn); // fnr*fnr | fni*fni
+    mm5 = _mm_add_ps(mm5, _mm_swap_re_im(mm5)); // fnr*fnr+fni*fni
+    psd = _mm_add_ps(mm5, smallf_ps); // psd = fnr*fnr + fni*fni + 1e-15f; // power spectrum density cur
+    mm5 = _mm_div_ps(_mm_sub_ps(psd, sigmaSquaredNoiseNormed_ps), psd); // (psd-sigma)/psd
+    wienerfactor = _mm_max_ps(mm5, lowlimit_ps); // wienerfactor
+    // WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+    // fnr *= WienerFactor; // apply filter on real part
+    // fni *= WienerFactor; // apply filter on imaginary part
+    mm6 = _mm_mul_ps(fn, wienerfactor); // final wiener fnr | fni
+
+    final_sum = _mm_add_ps(final_sum, mm6); // fp + fn final
+
+    // fcr = outprev2[w][0] + outprev[w][0] + out[w][0] + outnext[w][0]; // real cur
+    // fci = outprev2[w][1] + outprev[w][1] + out[w][1] + outnext[w][1]; // im cur
+    auto fc = _mm_add_ps(_mm_add_ps(_mm_add_ps(cur, prev2), prev), next); // fc = cur+prev2+prev+next
+    mm5 = _mm_mul_ps(fc, fc); // fcr*fcr | fci*fci
+    mm5 = _mm_add_ps(mm5, _mm_swap_re_im(mm5)); // fcr*fcr + fci*fci
+    psd = _mm_add_ps(mm5, smallf_ps); // psd = fpr*fpr + fpi*fpi + 1e-15f; // power spectrum density cur
+    mm5 = _mm_div_ps(_mm_sub_ps(psd, sigmaSquaredNoiseNormed_ps), psd); // (psd-sigma)/psd
+    wienerfactor = _mm_max_ps(mm5, lowlimit_ps); // wienerfactor
+    // WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+    // fcr *= WienerFactor; // apply filter on real  part	
+    // fci *= WienerFactor; // apply filter on imaginary part
+    mm6 = _mm_mul_ps(fc, wienerfactor); // final wiener fcr | fci
+
+    final_sum = _mm_add_ps(final_sum, mm6); // fp + fn + fc
+
+    // fp2r = outprev2[w][0] - outprev[w][0] + out[w][0] - outnext[w][0]; // real prev2
+    // fp2i = outprev2[w][1] - outprev[w][1] + out[w][1] - outnext[w][1]; // im cur
+    auto fp2 = _mm_sub_ps(_mm_sub_ps(_mm_add_ps(cur, prev2), prev), next); // fp2 = cur+prev2-prev-next
+
+    mm5 = _mm_mul_ps(fp2, fp2); // fr*fr | fi*fi
+    mm5 = _mm_add_ps(mm5, _mm_swap_re_im(mm5)); // fr*fr + fi*fi
+    psd = _mm_add_ps(mm5, smallf_ps); // psd = fp2r*fp2r + fp2i*fp2i + 1e-15f; // power spectrum density cur
+    mm5 = _mm_div_ps(_mm_sub_ps(psd, sigmaSquaredNoiseNormed_ps), psd); // (psd-sigma)/psd
+    wienerfactor = _mm_max_ps(mm5, lowlimit_ps); // wienerfactor
+    // WienerFactor = max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
+    // fp2r *= WienerFactor; // apply filter on real part
+    // fp2i *= WienerFactor; // apply filter on imaginary part
+    mm6 = _mm_mul_ps(fp2, wienerfactor); // final wiener fp2r | fp2i
+
+    final_sum = _mm_add_ps(final_sum, mm6); // fp + fn + fc + fp2 final
+
+    // reverse dft for 4 points
+    final_sum = _mm_mul_ps(final_sum, onefourth_ps);
+    // outprev2[w][0] = (fcr + fpr + fnr + fp2r)*0.25f; // get real part
+    // outprev2[w][1] = (fci + fpi + fni + fp2i)*0.25f; // get imaginary part
+    _mm_storel_epi64(reinterpret_cast<__m128i*>((uint8_t*)outprev2 + eax), _mm_castps_si128(final_sum));
+    // write output to prev array
+    // Attention! return filtered "out" in "outprev2" to preserve "out" for next step
+  }
+}
+
+
 //-----------------------------------------------------------------------------------------
 //
 void ApplyPattern3D2_SSE(fftwf_complex *outcur, fftwf_complex *outprev, 
@@ -1017,350 +1027,6 @@ finish:			emms;
 #endif // !x64
 }
 //-------------------------------------------------------------------------------------------
-#if 0
-// 170531 moved to SSE2 simd intrinsics
-void Sharpen_degrid_SSE(fftwf_complex *outcur, int outwidth, int outpitch, int bh,
-  int howmanyblocks, float sharpen, float sigmaSquaredSharpenMin,
-  float sigmaSquaredSharpenMax, float *wsharpen,
-  float degrid, fftwf_complex *gridsample, float dehalo, float *wdehalo, float ht2n)
-{
-  //	int h,w, block;
-  //	float psd;
-  //	float sfact;
-  //	float one = 1.0f;
-  int bytesperblock = bh*outpitch * 8;
-  int blockscounter = howmanyblocks;
-
-  xmmreg gridcorrection;
-  float gridfraction;
-
-#ifndef X86_64
-
-  if (sharpen != 0 && dehalo == 0)
-  {
-    __asm {
-
-
-      //		for (block =0; block <howmanyblocks; block++)
-      //		{
-      //			for (h=0; h<bh; h++) // middle
-      //			{
-      //				for (w=0; w<outwidth; w++) // skip leftmost column w=0
-      //				{
-      emms;
-      mov esi, outcur; // current
-      mov edx, wsharpen;
-      mov edi, wdehalo;
-      mov ecx, bytesperblock; // counter
-      movss xmm7, sharpen;
-      shufps xmm7, xmm7, 0;// xmm7 = sharpen
-      movss xmm4, sigmaSquaredSharpenMax;
-      shufps xmm4, xmm4, 0; // xmm4 =sigmaSquaredSharpenMax
-    blockend:		mov eax, blockscounter;
-      test eax, eax;
-      je	finish;
-      dec eax
-        mov blockscounter, eax;
-
-      movss xmm3, [esi]; // mm3=cur real | img 
-      movss xmm7, degrid;
-      mulps xmm7, xmm3;
-      mov ebx, gridsample;
-      movss xmm3, [ebx];
-      rcpps xmm3, xmm3;
-      mulps xmm7, xmm3;
-      movss gridfraction, xmm7;
-      mov eax, 0;
-      align 16
-        nextnumber:
-      movaps xmm3, [ebx + eax]; // mm3=grid real | img 
-      movss xmm7, gridfraction;
-      shufps xmm7, xmm7, 0;
-      mulps xmm3, xmm7; // fraction*sample
-      movaps xmm7, xmm3; // copy
-      movups gridcorrection, xmm7;
-
-      // take two complex numbers
-      movaps xmm1, [esi + eax]; // xmm1=cur real | img 
-
-      subps xmm1, xmm7; // - gridcorrection
-
-      movaps xmm0, xmm1; // copy sum
-      mulps xmm0, xmm0; // xmm0 =sumre*sumre | sumim*sumim
-      movaps xmm3, xmm0; //copy
-      shufps xmm3, xmm3, (128 + 48 + 0 + 1);// swap re & im
-                                            //					psd = (outcur[w][0]*outcur[w][0] + outcur[w][1]*outcur[w][1]);
-      addps xmm0, xmm3; // xmm0 = psd = sumre*sumre + sumim*sumim
-      movss xmm5, sigmaSquaredSharpenMin;
-      movaps xmm2, xmm0; //copy psd
-      shufps xmm5, xmm5, 0; // xmm5 =sigmaSquaredSharpenMin
-      addps xmm2, xmm5; // psd + smin
-      movaps xmm5, xmm0; //copy psd for dehalo
-      movaps xmm3, xmm0; //copy psd
-      addps xmm3, xmm4; // psd + smax
-      mulps xmm3, xmm2; // (psd + smin)*(psd + smax)
-      mulps xmm0, xmm4; // psd*smax
-      rcpps xmm3, xmm3; // 1/(psd + smin)*(psd + smax)
-      mulps xmm0, xmm3; // psd*smax/((psd + smin)*(psd + smax))
-      sqrtps xmm0, xmm0; // sqrt()
-                         //improved sharpen mode to prevent grid artifactes and to limit sharpening both for low and high amplitudes
-                         //				sfact = (1 + sharpen*wsharpen[w]*sqrt( psd*sigmaSquaredSharpenMax/((psd + sigmaSquaredSharpenMin)*(psd + sigmaSquaredSharpenMax)) ) ); // sharpen factor - changed in v1.1c
-
-      shr eax, 1;
-      movlps xmm6, [edx + eax];// wsharpen - two values
-      shufps xmm6, xmm6, (64 + 16 + 0 + 0);// 01 01 00 00 low
-      shl eax, 1;
-
-      mulps xmm0, xmm6; // wsharpen*sqrt()
-      movss xmm7, sharpen;
-      shufps xmm7, xmm7, 0;// xmm7 = sharpen
-
-      mulps xmm0, xmm7; // sharpen*wsharpen*sqrt()
-      mulps xmm0, xmm1; // outcur*sharpen*wsharpen*sqrt()
-      addps xmm0, xmm1; // outcur + outcur*sharpen*wsharpen*sqrt()
-
-      movups xmm7, gridcorrection;
-      addps xmm0, xmm7;
-
-      //				outcur[w][0] *= sfact;
-      //				outcur[w][1] *= sfact;
-      movaps[esi + eax], xmm0;
-      //				}
-      //				outcur += outpitch;
-      //				wsharpen += outpitch;
-      //			}
-      //			wsharpen -= outpitch*bh;
-      //		}
-      add eax, 16;
-      cmp eax, ecx;
-      jl nextnumber;
-      add esi, ecx;// new block
-      jmp blockend;
-    finish:			emms;
-    }
-  }
-  if (sharpen == 0 && dehalo != 0)
-  {
-    __asm {
-
-
-      //		for (block =0; block <howmanyblocks; block++)
-      //		{
-      //			for (h=0; h<bh; h++) // middle
-      //			{
-      //				for (w=0; w<outwidth; w++) // skip leftmost column w=0
-      //				{
-      emms;
-      mov esi, outcur; // current
-      mov edx, wsharpen;
-      mov edi, wdehalo;
-      mov ecx, bytesperblock; // counter
-      movss xmm7, sharpen;
-      shufps xmm7, xmm7, 0;// xmm7 = sharpen
-      movss xmm4, sigmaSquaredSharpenMax;
-      shufps xmm4, xmm4, 0; // xmm4 =sigmaSquaredSharpenMax
-    blockend2:		mov eax, blockscounter;
-      test eax, eax;
-      je	finish2;
-      dec eax
-        mov blockscounter, eax;
-
-      movss xmm3, [esi]; // mm3=cur real | img 
-      movss xmm7, degrid;
-      mulps xmm7, xmm3;
-      mov ebx, gridsample;
-      movss xmm3, [ebx];
-      rcpps xmm3, xmm3;
-      mulps xmm7, xmm3;
-      movss gridfraction, xmm7;
-      mov eax, 0;
-      align 16
-        nextnumber2:
-      movaps xmm3, [ebx + eax]; // mm3=grid real | img 
-      movss xmm7, gridfraction;
-      shufps xmm7, xmm7, 0;
-      mulps xmm3, xmm7; // fraction*sample
-      movaps xmm7, xmm3; // copy
-      movups gridcorrection, xmm7;
-
-      // take two complex numbers
-      movaps xmm1, [esi + eax]; // xmm1=cur real | img 
-
-      subps xmm1, xmm7; // - gridcorrection
-
-      movaps xmm0, xmm1; // copy sum
-      mulps xmm0, xmm0; // xmm0 =sumre*sumre | sumim*sumim
-      movaps xmm3, xmm0; //copy
-      shufps xmm3, xmm3, (128 + 48 + 0 + 1);// swap re & im
-                                            //					psd = (outcur[w][0]*outcur[w][0] + outcur[w][1]*outcur[w][1]);
-      addps xmm0, xmm3; // xmm0 = psd = sumre*sumre + sumim*sumim
-      movaps xmm5, xmm0; //copy psd for dehalo
-      movaps xmm0, xmm1; //copy current
-
-                         //			(psd + ht2n)/((psd + ht2n) + dehalo*wdehalo[w] * psd ); // dehalo factor
-      shr eax, 1;
-      movlps xmm6, [edi + eax];// wdehalo - two values
-      shufps xmm6, xmm6, (64 + 16 + 0 + 0);// 01 01 00 00 low
-      shl eax, 1;
-
-      movss xmm7, dehalo;
-      shufps xmm7, xmm7, 0;// xmm7 = dehalo
-      mulps xmm6, xmm7; // dehalo*wdehalo
-      mulps xmm6, xmm5; // dehalo*wdehalo*psd
-      addps xmm6, xmm5; // dehalo*wdehalo*psd + psd
-      movss xmm7, ht2n;
-      shufps xmm7, xmm7, 0; // xmm7=ht2n
-      addps xmm6, xmm7; // dehalo*wdehalo*psd + psd + ht2n
-      rcpps xmm6, xmm6; // inverse
-      addps xmm5, xmm7; // psd + ht2n
-      mulps xmm6, xmm5; // dehalo factor
-      mulps xmm0, xmm6; // halo-corrected currect
-
-      movups xmm7, gridcorrection;
-      addps xmm0, xmm7;
-
-      //				outcur[w][0] *= sfact;
-      //				outcur[w][1] *= sfact;
-      movaps[esi + eax], xmm0;
-      //				}
-      //				outcur += outpitch;
-      //				wsharpen += outpitch;
-      //			}
-      //			wsharpen -= outpitch*bh;
-      //		}
-      add eax, 16;
-      cmp eax, ecx;
-      jl nextnumber2;
-      add esi, ecx;// new block
-      jmp blockend2;
-    finish2:			emms;
-    }
-  }
-  if (sharpen != 0 || dehalo != 0)
-  {
-    __asm {
-
-
-      //		for (block =0; block <howmanyblocks; block++)
-      //		{
-      //			for (h=0; h<bh; h++) // middle
-      //			{
-      //				for (w=0; w<outwidth; w++) // skip leftmost column w=0
-      //				{
-      emms;
-      mov esi, outcur; // current
-      mov edx, wsharpen;
-      mov edi, wdehalo;
-      mov ecx, bytesperblock; // counter
-      movss xmm7, sharpen;
-      shufps xmm7, xmm7, 0 ;// xmm7 = sharpen
-      movss xmm4, sigmaSquaredSharpenMax;
-      shufps xmm4, xmm4, 0; // xmm4 =sigmaSquaredSharpenMax
-    blockend3:		mov eax, blockscounter;
-      test eax, eax;
-      je	finish3;
-      dec eax
-        mov blockscounter, eax;
-
-      movss xmm3, [esi]; // mm3=cur real | img 
-      movss xmm7, degrid;
-      mulps xmm7, xmm3;
-      mov ebx, gridsample;
-      movss xmm3, [ebx];
-      rcpps xmm3, xmm3;
-      mulps xmm7, xmm3;
-      movss gridfraction, xmm7;
-      mov eax, 0;
-      align 16
-        nextnumber3:
-      movaps xmm3, [ebx+eax]; // mm3=grid real | img 
-      movss xmm7, gridfraction;
-      shufps xmm7, xmm7, 0;
-      mulps xmm3, xmm7; // fraction*sample
-      movaps xmm7, xmm3; // copy
-      movups gridcorrection, xmm7;
-
-      // take two complex numbers
-      movaps xmm1, [esi+eax]; // xmm1=cur real | img 
-
-      subps xmm1, xmm7; // - gridcorrection
-
-      movaps xmm0, xmm1; // copy sum
-      mulps xmm0, xmm0; // xmm0 =sumre*sumre | sumim*sumim
-      movaps xmm3, xmm0; //copy
-      shufps xmm3, xmm3, (128 + 48 + 0 + 1);// swap re & im
-                                            //					psd = (outcur[w][0]*outcur[w][0] + outcur[w][1]*outcur[w][1]);
-      addps xmm0, xmm3; // xmm0 = psd = sumre*sumre + sumim*sumim
-      movss xmm5, sigmaSquaredSharpenMin;
-      movaps xmm2, xmm0; //copy psd
-      shufps xmm5, xmm5, 0; // xmm5 =sigmaSquaredSharpenMin
-      addps xmm2, xmm5; // psd + smin
-      movaps xmm5, xmm0; //copy psd for dehalo
-      movaps xmm3, xmm0; //copy psd
-      addps xmm3, xmm4; // psd + smax
-      mulps xmm3, xmm2; // (psd + smin)*(psd + smax)
-      mulps xmm0, xmm4; // psd*smax
-      rcpps xmm3, xmm3; // 1/(psd + smin)*(psd + smax)
-      mulps xmm0, xmm3; // psd*smax/((psd + smin)*(psd + smax))
-      sqrtps xmm0, xmm0; // sqrt()
-                         //improved sharpen mode to prevent grid artifactes and to limit sharpening both for low and high amplitudes
-                         //				sfact = (1 + sharpen*wsharpen[w]*sqrt( psd*sigmaSquaredSharpenMax/((psd + sigmaSquaredSharpenMin)*(psd + sigmaSquaredSharpenMax)) ) ); // sharpen factor - changed in v1.1c
-
-      shr eax, 1;
-      movlps xmm6, [edx+eax];// wsharpen - two values
-      shufps xmm6, xmm6, (64 + 16 + 0 + 0) ;// 01 01 00 00 low
-      shl eax, 1;
-
-      mulps xmm0, xmm6; // wsharpen*sqrt()
-      movss xmm7, sharpen;
-      shufps xmm7, xmm7, 0;// xmm7 = sharpen
-
-      mulps xmm0, xmm7; // sharpen*wsharpen*sqrt()
-      mulps xmm0, xmm1; // outcur*sharpen*wsharpen*sqrt()
-      addps xmm0, xmm1; // outcur + outcur*sharpen*wsharpen*sqrt()
-
-                        //			(psd + ht2n)/((psd + ht2n) + dehalo*wdehalo[w] * psd ); // dehalo factor
-      shr eax, 1;
-      movlps xmm6, [edi+eax];// wdehalo - two values
-      shufps xmm6, xmm6, (64 + 16 + 0 + 0) ;// 01 01 00 00 low
-      shl eax, 1;
-
-      movss xmm7, dehalo;
-      shufps xmm7, xmm7, 0;// xmm7 = dehalo
-      mulps xmm6, xmm7; // dehalo*wdehalo
-      mulps xmm6, xmm5; // dehalo*wdehalo*psd
-      addps xmm6, xmm5; // dehalo*wdehalo*psd + psd
-      movss xmm7, ht2n;
-      shufps xmm7, xmm7, 0; // xmm7=ht2n
-      addps xmm6, xmm7; // dehalo*wdehalo*psd + psd + ht2n
-      rcpps xmm6, xmm6; // inverse
-      addps xmm5, xmm7; // psd + ht2n
-      mulps xmm6, xmm5; // dehalo factor
-      mulps xmm0, xmm6; // halo-corrected currect
-
-      movups xmm7, gridcorrection;
-      addps xmm0, xmm7;
-
-      //				outcur[w][0] *= sfact;
-      //				outcur[w][1] *= sfact;
-      movaps[esi + eax], xmm0;
-      //				}
-      //				outcur += outpitch;
-      //				wsharpen += outpitch;
-      //			}
-      //			wsharpen -= outpitch*bh;
-      //		}
-      add eax, 16;
-      cmp eax, ecx;
-      jl nextnumber3;
-      add esi, ecx;// new block
-      jmp blockend3;
-    finish3:			emms;
-    }
-  }
-#endif // !x64
-}
-#endif
 
 // true-true:
 // bt=3 sharpen=1 dehalo=1

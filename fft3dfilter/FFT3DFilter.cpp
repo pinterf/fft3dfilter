@@ -135,15 +135,12 @@ static std::mutex fftw_mutex; // defined as static
 // declarations of filtering functions:
 #ifndef X86_64
 // 3DNow
-void ApplyWiener3D2_3DNow(fftwf_complex *outcur, fftwf_complex *outprev, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta);
-void ApplyWiener3D3_3DNow(fftwf_complex *outcur, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta);
 void ApplyWiener3D4_3DNow(fftwf_complex *outcur, fftwf_complex *outprev2, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta);
-void ApplyKalman_3DNow(fftwf_complex *outcur, fftwf_complex *outLast, fftwf_complex *covar, fftwf_complex *covarProcess, int outwidth, int outpitch, int bh, int howmanyblocks, float covarNoiseNormed, float kratio2);
 #endif
 void ApplyKalman_SSE2_simd(fftwf_complex *outcur, fftwf_complex *outLast, fftwf_complex *covar, fftwf_complex *covarProcess, int outwidth, int outpitch, int bh, int howmanyblocks, float covarNoiseNormed, float kratio2);
 // SSE
-void ApplyWiener3D2_SSE(fftwf_complex *outcur, fftwf_complex *outprev, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta);
 void ApplyWiener3D2_SSE_simd(fftwf_complex *outcur, fftwf_complex *outprev, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta);
+void ApplyWiener3D4_SSE_simd(fftwf_complex* outcur, fftwf_complex* outprev2, fftwf_complex* outprev, fftwf_complex* outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta);
 void ApplyPattern3D2_SSE(fftwf_complex *outcur, fftwf_complex *outprev, int outwidth, int outpitch, int bh, int howmanyblocks, float * pattern3d, float beta);
 void ApplyWiener3D3_SSE(fftwf_complex *outcur, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta);
 void ApplyPattern3D3_SSE(fftwf_complex *outcur, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float *pattern3d, float beta);
@@ -178,7 +175,6 @@ void ApplyPattern3D5_degrid_C(fftwf_complex *out, fftwf_complex *outprev2, fftwf
 void ApplyWiener3D3_degrid_SSE(fftwf_complex *outcur, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta, float degrid, fftwf_complex *gridsample);
 void ApplyWiener3D3_degrid_SSE_simd(fftwf_complex *outcur, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta, float degrid, fftwf_complex *gridsample);
 void ApplyPattern3D3_degrid_SSE(fftwf_complex *out, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float *pattern3d, float beta, float degrid, fftwf_complex *gridsample);
-void Sharpen_degrid_SSE(fftwf_complex *outcur, int outwidth, int outpitch, int bh, int howmanyblocks, float sharpen, float sigmaSquaredSharpenMin, float sigmaSquaredSharpenMax, float *wsharpen, float degrid, fftwf_complex *gridsample, float dehalo, float *wdehalo, float ht2n);
 void Sharpen_degrid_SSE_simd(fftwf_complex *outcur, int outwidth, int outpitch, int bh, int howmanyblocks, float sharpen, float sigmaSquaredSharpenMin, float sigmaSquaredSharpenMax, float *wsharpen, float degrid, fftwf_complex *gridsample, float dehalo, float *wdehalo, float ht2n);
 void ApplyWiener3D4_degrid_SSE(fftwf_complex *outcur, fftwf_complex *outprev2, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta, float degrid, fftwf_complex *gridsample);
 void ApplyPattern3D4_degrid_SSE(fftwf_complex *outcur, fftwf_complex *outprev2, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float *pattern3d, float beta, float degrid, fftwf_complex *gridsample);
@@ -191,16 +187,6 @@ void ApplyWiener2D(fftwf_complex *out, int outwidth, int outpitch, int bh, int h
 //-------------------------------------------------------------------------------------------
 void ApplyWiener3D2(fftwf_complex *outcur, fftwf_complex *outprev, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta, int CPUFlags)
 {
-  /*
-#ifndef X86_64
-  if (CPUFlags & CPUF_3DNOW_EXT)
-    ApplyWiener3D2_3DNow(outcur, outprev, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta);
-  else
-  if (CPUFlags & CPUF_SSE)
-    ApplyWiener3D2_SSE(outcur, outprev, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta);
-  else
-#endif
-  */
   if (CPUFlags & CPUF_SSE2) // 170302 simd, SSE2
     ApplyWiener3D2_SSE_simd(outcur, outprev, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta);
   else
@@ -220,10 +206,7 @@ void ApplyPattern3D2(fftwf_complex *outcur, fftwf_complex *outprev, int outwidth
 void ApplyWiener3D3(fftwf_complex *out, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta, int CPUFlags)
 {
 #ifndef X86_64
-  if (CPUFlags & CPUF_3DNOW_EXT)
-    ApplyWiener3D3_3DNow(out, outprev, outnext, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta);
-  else 
-    if (CPUFlags & CPUF_SSE)
+  if (CPUFlags & CPUF_SSE)
     ApplyWiener3D3_SSE(out, outprev, outnext, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta);
   else
 #endif
@@ -232,15 +215,9 @@ void ApplyWiener3D3(fftwf_complex *out, fftwf_complex *outprev, fftwf_complex *o
 //-------------------------------------------------------------------------------------------
 void ApplyWiener3D3_degrid(fftwf_complex *out, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta, float degrid, fftwf_complex *gridsample, int CPUFlags)
 {
-#ifndef X86_64
   if (CPUFlags & CPUF_SSE)
     ApplyWiener3D3_degrid_SSE_simd(out, outprev, outnext, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta, degrid, gridsample);
   else
-#else
-  if (CPUFlags & CPUF_SSE2)
-    ApplyWiener3D3_degrid_SSE_simd(out, outprev, outnext, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta, degrid, gridsample);
-  else
-#endif
     ApplyWiener3D3_degrid_C(out, outprev, outnext, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta, degrid, gridsample);
 }
 //-------------------------------------------------------------------------------------------
@@ -291,11 +268,9 @@ void ApplyPattern3D4_degrid(fftwf_complex *out, fftwf_complex *outprev2, fftwf_c
 //-------------------------------------------------------------------------------------------
 void ApplyWiener3D4(fftwf_complex *out, fftwf_complex *outprev2, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta, int CPUFlags)
 {
-#ifndef X86_64
-  if (CPUFlags & CPUF_3DNOW_EXT)
-    ApplyWiener3D4_3DNow(out, outprev2, outprev, outnext, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta);
+  if (CPUFlags & CPUF_SSE2)
+    ApplyWiener3D4_SSE_simd(out, outprev2, outprev, outnext, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta);
   else
-#endif
     ApplyWiener3D4_C(out, outprev2, outprev, outnext, outwidth, outpitch, bh, howmanyblocks, sigmaSquaredNoiseNormed, beta);
 }
 //-------------------------------------------------------------------------------------------
@@ -334,13 +309,6 @@ void Sharpen_degrid(fftwf_complex *outcur, int outwidth, int outpitch, int bh, i
   if ((CPUFlags & CPUF_SSE2))
     Sharpen_degrid_SSE_simd(outcur, outwidth, outpitch, bh, howmanyblocks, sharpen, sigmaSquaredSharpenMin, sigmaSquaredSharpenMax, wsharpen, degrid, gridsample, dehalo, wdehalo, ht2n);
   else
-/* implemented in simd intrinsics
-#ifndef X86_64
-  if ((CPUFlags & CPUF_SSE))
-    Sharpen_degrid_SSE(outcur, outwidth, outpitch, bh, howmanyblocks, sharpen, sigmaSquaredSharpenMin, sigmaSquaredSharpenMax, wsharpen, degrid, gridsample, dehalo, wdehalo, ht2n);
-  else
-#endif
-*/
     Sharpen_degrid_C(outcur, outwidth, outpitch, bh, howmanyblocks, sharpen, sigmaSquaredSharpenMin, sigmaSquaredSharpenMax, wsharpen, degrid, gridsample, dehalo, wdehalo, ht2n);
 }
 //-------------------------------------------------------------------------------------------
