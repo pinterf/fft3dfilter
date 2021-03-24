@@ -2,8 +2,12 @@
 
 Change log
 ```
+FFT3DFilter v2.9 (20210324)
+  - Fix issue when pfactor <> 0 and using 10+ bits (Xinyue Lu, neo_FFT3D) 
+  - Fix incorrect negative value float to integer rounding (Xinyue Lu, neo_FFT3D r7)
+
 FFT3DFilter v2.8 (20201201)
-- Fix: chroma plane filtering for 32 bit float formats  
+  - Fix: chroma plane filtering for 32 bit float formats  
 
 FFT3DFilter v2.7 (20201130)
   - Fix: make fftw plans thread safe.
@@ -36,7 +40,7 @@ FFT3DFilter v2.3 (20170221)
   - auto register MT mode for avs+: MT_SERIALIZED
 
 Previous versions by Fizick and martin53
-``` 
+```
 Original Docs:
 https://avisynth.org.ru/fft3dfilter/fft3dfilter.html
 Project:
@@ -44,5 +48,65 @@ https://github.com/pinterf/fft3dfilter
 Forum:
 https://forum.doom9.org/showthread.php?t=174347
 
+Build instructions
+------------------
+### Windows Visual Studio MSVC
 
+use IDE
+
+### Windows GCC
+
+(mingw installed by msys2)
+ From the 'build' folder under project root:
+
+```
+del ..\CMakeCache.txt
+cmake .. -G "MinGW Makefiles" -DENABLE_INTEL_SIMD:bool=on
+@rem test: cmake .. -G "MinGW Makefiles" -DENABLE_INTEL_SIMD:bool=off
+cmake --build . --config Release
+```
+
+### Linux
+
+Note: ENABLE_INTEL_SIMD is automatically off for non-x86 architectures
+
+Clone repo and build
+
+```
+git clone https://github.com/pinterf/fft3dfilter
+cd fft3dfilter
+cmake -B build -S .
+cmake --build build
+```
+
+Useful hints:
+
+build after clean:
+
+```
+cmake --build build --clean-first
+```
+
+Force no Intel x86-assembler support:
+
+```
+cmake -B build -S . -DENABLE_INTEL_SIMD:bool=off
+```
+
+delete CMake cache:
+
+```
+rm build/CMakeCache.txt
+```
+
+
+
+* Find binaries at
+  
+        build/fft3dfilter/libfft3dfilter.so
+
+* Install binaries
+
+        cd build
+        sudo make install
 
