@@ -18,9 +18,6 @@
     <ClCompile Include="FFT3DFilter.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="fft3dfilter_3dnow.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="fft3dfilter_c.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
