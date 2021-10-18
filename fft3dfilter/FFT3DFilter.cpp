@@ -701,37 +701,13 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   int istat;
 
   try {
-    fftfp.load(nullptr /*fftfp_preloaded.library*/); // use existing
+    fftfp.load();
   }
   catch (const std::exception& e)
   {
     throw AvisynthError(e.what());
   }
 
-  /*
-  hinstLib = LoadLibrary("libfftw3f-3.dll"); // PF full original name
-  if (hinstLib == NULL)
-    hinstLib = LoadLibrary("fftw3.dll"); // added in v 0.8.4 for delayed loading
-  if (hinstLib != NULL)
-  {
-    fftwf_free = (fftwf_free_proc)GetProcAddress(hinstLib, "fftwf_free");
-    fftwf_malloc = (fftwf_malloc_proc)GetProcAddress(hinstLib, "fftwf_malloc");
-    fftwf_plan_many_dft_r2c = (fftwf_plan_many_dft_r2c_proc)GetProcAddress(hinstLib, "fftwf_plan_many_dft_r2c");
-    fftwf_plan_many_dft_c2r = (fftwf_plan_many_dft_c2r_proc)GetProcAddress(hinstLib, "fftwf_plan_many_dft_c2r");
-    fftwf_destroy_plan = (fftwf_destroy_plan_proc)GetProcAddress(hinstLib, "fftwf_destroy_plan");
-    fftwf_execute_dft_r2c = (fftwf_execute_dft_r2c_proc)GetProcAddress(hinstLib, "fftwf_execute_dft_r2c");
-    fftwf_execute_dft_c2r = (fftwf_execute_dft_c2r_proc)GetProcAddress(hinstLib, "fftwf_execute_dft_c2r");
-    fftwf_init_threads = (fftwf_init_threads_proc)GetProcAddress(hinstLib, "fftwf_init_threads");
-    fftwf_plan_with_nthreads = (fftwf_plan_with_nthreads_proc)GetProcAddress(hinstLib, "fftwf_plan_with_nthreads");
-    {
-      std::lock_guard<std::mutex> lock(fftw_mutex);
-      istat = fftwf_init_threads();
-    }
-  }
-  if (istat == 0 || hinstLib == NULL || fftwf_free == NULL || fftwf_malloc == NULL || fftwf_plan_many_dft_r2c == NULL ||
-    fftwf_plan_many_dft_c2r == NULL || fftwf_destroy_plan == NULL || fftwf_execute_dft_r2c == NULL || fftwf_execute_dft_c2r == NULL)
-    env->ThrowError("FFT3DFilter: libfftw3f-3.dll or fftw3.dll not found. Please put in PATH or use LoadDll() plugin");
-  */
 
   coverwidth = nox*(bw - ow) + ow;
   coverheight = noy*(bh - oh) + oh;
