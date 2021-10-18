@@ -800,8 +800,10 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   {
     std::lock_guard<std::mutex> lock(fftw_mutex);
 
-    if (ncpu > 1 && fftfp.has_threading()) {
+    if (fftfp.has_threading())
       fftfp.fftwf_init_threads();
+
+    if (ncpu > 1 && fftfp.has_threading()) {
       fftfp.fftwf_plan_with_nthreads(ncpu);
     }
 
@@ -815,7 +817,8 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
     if (planinv == NULL)
       env->ThrowError("FFT3DFilter: FFTW plan error");
 
-    fftfp.fftwf_plan_with_nthreads(1);
+    if (fftfp.has_threading())
+      fftfp.fftwf_plan_with_nthreads(1);
   }
 
   wanxl = (float*)malloc(ow * sizeof(float));
