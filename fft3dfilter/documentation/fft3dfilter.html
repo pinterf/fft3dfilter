@@ -532,7 +532,7 @@ re-enabled SSE optimization for degrid=0; added SSE optimization for bt=3,-1 wit
 - Replace never used 3dnow ApplyWiener3D4 with simd SSE2. (bt=4, degrid=0, pfactor=0) (2x speed)
 </li>
 <li>Version 2.10   - October 18, 2021<br>
-- Fix possible crash on exit on ncpu=1 (uninitialized fft3w threads)
+- Fix possible crash on exit on ncpu=1 (uninitialized fft3w threads)<br>
 - Fix C version (possibly unused on Intel builds, when CPU less than SSE2) in sharpen+degrid method
 </li>
 
