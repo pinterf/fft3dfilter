@@ -111,8 +111,8 @@ void ApplyWiener2D_C(fftwf_complex *outcur, int outwidth, int outpitch, int bh,
 				{
 					psd = (outcur[w][0]*outcur[w][0] + outcur[w][1]*outcur[w][1]) + 1e-15f;// power spectrum density
 					WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
-					WienerFactor *= 1 + sharpen*wsharpen[w]*sqrt( psd*sigmaSquaredSharpenMax/((psd + sigmaSquaredSharpenMin)*(psd + sigmaSquaredSharpenMax)) ) *
-						(psd + ht2n)/((psd + ht2n) + dehalo*wdehalo[w] * psd ); 
+          WienerFactor *= 1 + sharpen * wsharpen[w] * sqrt(psd * sigmaSquaredSharpenMax / ((psd + sigmaSquaredSharpenMin) * (psd + sigmaSquaredSharpenMax)));
+          WienerFactor *= (psd + ht2n)/((psd + ht2n) + dehalo*wdehalo[w] * psd );
 					outcur[w][0] *= WienerFactor; // apply filter on real  part	
 					outcur[w][1] *= WienerFactor; // apply filter on imaginary part
 				}
@@ -944,8 +944,9 @@ void ApplyWiener2D_degrid_C(fftwf_complex *outcur, int outwidth, int outpitch, i
 					float corrected1 = outcur[w][1] - gridcorrection1;
 					psd = (corrected0*corrected0 + corrected1*corrected1 ) + 1e-15f;// power spectrum density
 					WienerFactor = std::max((psd - sigmaSquaredNoiseNormed)/psd, lowlimit); // limited Wiener filter
-					WienerFactor *= 1 + sharpen*wsharpen[w]*sqrt( psd*sigmaSquaredSharpenMax/((psd + sigmaSquaredSharpenMin)*(psd + sigmaSquaredSharpenMax)) ) *
-						(psd + ht2n)/((psd + ht2n)+ dehalo*wdehalo[w] * psd ); 
+          // fixed in .10
+          WienerFactor *= 1 + sharpen * wsharpen[w] * sqrt(psd * sigmaSquaredSharpenMax / ((psd + sigmaSquaredSharpenMin) * (psd + sigmaSquaredSharpenMax)));
+          WienerFactor *= (psd + ht2n)/((psd + ht2n)+ dehalo*wdehalo[w] * psd );
 //					outcur[w][0] *= WienerFactor; // apply filter on real  part	
 //					outcur[w][1] *= WienerFactor; // apply filter on imaginary part
 					corrected0 *= WienerFactor; // apply filter on real  part	
