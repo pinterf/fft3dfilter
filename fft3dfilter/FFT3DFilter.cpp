@@ -108,7 +108,7 @@
 
 */
 
-#define VERSION_NUMBER 2.9
+#define VERSION_NUMBER 2.10
 
 #include <avisynth.h>
 #include <stdio.h>
