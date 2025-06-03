@@ -1,6 +1,10 @@
 ### Change log - fft3dfilter  ###
 
 ```
+FFT3DFilter v2.2.11 (20250603)
+  - With Avisynth Interface v12 (3.7.6-): use Global Lock to make thread safe fftw3 for all 
+    plugins using fftw3 globally.
+
 FFT3DFilter v2.2.10 (20211018)
   - Fix possible crash on exit on ncpu=1 (uninitialized fft3w threads)
   - Fix C version (possibly unused on Intel builds, when CPU less than SSE2) in sharpen+degrid method  
