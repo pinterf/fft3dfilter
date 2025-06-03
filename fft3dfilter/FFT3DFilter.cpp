@@ -485,7 +485,10 @@ class FFT3DFilter : public GenericVideoFilter {
   int _instance_id; // debug unique id
   std::atomic<bool> reentrancy_check;
 
+  size_t avisynth_if_ver;
+  size_t avisynth_bugfix_ver;
   bool has_at_least_v8; // frame property support
+  bool has_at_least_v12; // global lock support
 
 //	float *fullwinan; // disabled in v2.2.1, return to v1.9.2 method
 //	float *fullwinsyn;
@@ -564,10 +567,21 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   reentrancy_check = false;
   _RPT1(0, "FFT3DFilter.Create instance_id=%d\n", _instance_id);
 
-  // Check frame property support
-  has_at_least_v8 = true;
-  try { env->CheckVersion(8); }
-  catch (const AvisynthError&) { has_at_least_v8 = false; }
+  avisynth_if_ver = 6;
+  avisynth_bugfix_ver = 0;
+  try {
+    avisynth_if_ver = env->GetEnvProperty(AEP_INTERFACE_VERSION);
+    avisynth_bugfix_ver = env->GetEnvProperty(AEP_INTERFACE_BUGFIX);
+  }
+  catch (const AvisynthError&) {
+    try { env->CheckVersion(8); avisynth_if_ver = 8; }
+    catch (const AvisynthError&) {}
+  }
+  has_at_least_v8 = avisynth_if_ver >= 8; // frame properties, NewVideoFrameP, other V8 environment functions
+  //has_at_least_v8_1 = avisynth_if_ver > 8 || (avisynth_if_ver == 8 && avisynth_bugfix_ver >= 1);
+  // 8.1: C interface frameprop access fixed, IsPropertyWritable/MakePropertyWritable support, extended GetEnvProperty queries
+  has_at_least_v12 = avisynth_if_ver >= 12; // global locks
+  
 
   int i, j;
 
