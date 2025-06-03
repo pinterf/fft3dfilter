@@ -130,13 +130,79 @@
 
 // FFTW is not thread-safe, need to guard around its functions (except fftw_execute).
 // http://www.fftw.org/fftw3_doc/Thread-safety.html#Thread-safety
-static std::mutex fftw_mutex; // defined as static
+// Pre V12, not 100%, does not guard locks from multiple plugins using FFTW at the same time.
+static std::mutex fftw_legacy_mutex; // defined as static
+
+// Since Avisynth IF v12 use global lock which handles fftw locks for different plugins which use the same FFTW library.
+class GlobalLockGuard
+{
+public:
+  // env_ptr should be the IScriptEnvironment* received by the plugin's function.
+  // lock_name is the name of the lock (e.g., "fftw").
+  // use_v12_if_available: If true, tries V12. If false or V12 not available, falls back to legacy mutex.
+  GlobalLockGuard(IScriptEnvironment* env_ptr, const char* lock_name, bool use_v12_global_lock)
+    : m_env_ptr(env_ptr), m_lockName(lock_name), m_acquired(false), m_is_legacy_lock(false)
+  {
+    if (!m_env_ptr || !m_lockName) {
+      // Invalid parameters, cannot acquire lock.
+      return;
+    }
+
+    // Attempt to acquire V12 global lock if requested and available.
+    // This assumes IScriptEnvironment provides a way to check its version.
+    if (use_v12_global_lock)
+    {
+      // We must use a try-catch block if AcquireGlobalLock can throw,
+      // or just assume it blocks and returns success/failure.
+      // Assuming it blocks and returns true/false for success.
+      m_acquired = m_env_ptr->AcquireGlobalLock(m_lockName);
+      if (m_acquired) {
+        m_is_legacy_lock = false; // Successfully acquired V12 lock
+        return; // Lock acquired, exit constructor
+      }
+    }
+
+    // If we reach here, V12 lock wasn't used/acquired, fall back to legacy mutex.
+    if (strcmp(m_lockName, "fftw") == 0) {
+      fftw_legacy_mutex.lock(); // Acquire the legacy mutex
+      m_acquired = true;
+      m_is_legacy_lock = true; // Acquired legacy lock
+    }
+    // else { // Handle unrecognized lock_name for legacy fallback if needed }
+  }
+
+  // Destructor releases the lock.
+  ~GlobalLockGuard()
+  {
+    if (m_acquired) // Only attempt to release if successfully acquired
+    {
+      if (m_is_legacy_lock) {
+        fftw_legacy_mutex.unlock(); // Release legacy mutex
+      }
+      else {
+        // Release V12 global lock
+        if (m_env_ptr) { // Safety check
+          m_env_ptr->ReleaseGlobalLock(m_lockName);
+        }
+      }
+    }
+  }
+
+  bool is_acquired() const { return m_acquired; }
+
+  // Disallow copying and assignment to prevent common errors with mutexes.
+  GlobalLockGuard(const GlobalLockGuard&) = delete;
+  GlobalLockGuard& operator=(const GlobalLockGuard&) = delete;
+
+private:
+  IScriptEnvironment* m_env_ptr; // Store the C++ interface pointer directly
+  const char* m_lockName;
+  bool m_acquired;
+  bool m_is_legacy_lock; // true if legacy mutex was used, false if V12 global lock was used
+};
+
 
 // declarations of filtering functions:
-#ifndef X86_64
-// 3DNow
-void ApplyWiener3D4_3DNow(fftwf_complex *outcur, fftwf_complex *outprev2, fftwf_complex *outprev, fftwf_complex *outnext, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta);
-#endif
 void ApplyKalman_SSE2_simd(fftwf_complex *outcur, fftwf_complex *outLast, fftwf_complex *covar, fftwf_complex *covarProcess, int outwidth, int outpitch, int bh, int howmanyblocks, float covarNoiseNormed, float kratio2);
 // SSE
 void ApplyWiener3D2_SSE_simd(fftwf_complex *outcur, fftwf_complex *outprev, int outwidth, int outpitch, int bh, int howmanyblocks, float sigmaSquaredNoiseNormed, float beta);
@@ -490,6 +556,8 @@ class FFT3DFilter : public GenericVideoFilter {
   bool has_at_least_v8; // frame property support
   bool has_at_least_v12; // global lock support
 
+  IScriptEnvironment* env_saved; // save environment pointer for the Destructor (Global lock)
+
 //	float *fullwinan; // disabled in v2.2.1, return to v1.9.2 method
 //	float *fullwinsyn;
 
@@ -526,7 +594,7 @@ public:
   // The is the destructor definition. This is called when the filter is destroyed.
 
 
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
   // This is the function that AviSynth calls to get a given frame.
   // So when this functions gets called, the filter is supposed to return frame n.
 
@@ -556,7 +624,7 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   measure(_measure), interlaced(_interlaced), wintype(_wintype),
   pframe(_pframe), px(_px), py(_py), pshow(_pshow), pcutoff(_pcutoff), pfactor(_pfactor),
   sigma2(_sigma2), sigma3(_sigma3), sigma4(_sigma4), degrid(_degrid),
-  dehalo(_dehalo), hr(_hr), ht(_ht), ncpu(_ncpu), multiplane(_multiplane) {
+  dehalo(_dehalo), hr(_hr), ht(_ht), ncpu(_ncpu), multiplane(_multiplane), env_saved(env) {
   // This is the implementation of the constructor.
   // The child clip (source clip) is inherited by the GenericVideoFilter,
   //  where the following variables gets defined:
@@ -729,7 +797,7 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   coverbuf = (BYTE*)malloc(coverheight*coverpitch*pixelsize);
 
   {
-    std::lock_guard<std::mutex> lock(fftw_mutex);
+    GlobalLockGuard fftw_lock(env, "fftw", has_at_least_v12);
 
     int insize = bw * bh * nox * noy;
     in = (float*)fftfp.fftwf_malloc(sizeof(float) * insize);
@@ -788,7 +856,7 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   //	*onembed = NULL;
 
   {
-    std::lock_guard<std::mutex> lock(fftw_mutex);
+    GlobalLockGuard fftw_lock(env, "fftw", has_at_least_v12);
 
     if (fftfp.has_threading())
       fftfp.fftwf_init_threads();
@@ -822,7 +890,7 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   wsynyr = (float*)malloc(oh * sizeof(float));
 
   {
-    std::lock_guard<std::mutex> lock(fftw_mutex);
+    GlobalLockGuard fftw_lock(env, "fftw", has_at_least_v12);
     wsharpen = (float*)fftfp.fftwf_malloc(bh * outpitch * sizeof(float));
     wdehalo = (float*)fftfp.fftwf_malloc(bh * outpitch * sizeof(float));
   }
@@ -1001,7 +1069,7 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   pwin -= outpitch*bh; // restore pointer
 
   {
-    std::lock_guard<std::mutex> lock(fftw_mutex);
+    GlobalLockGuard fftw_lock(env, "fftw", has_at_least_v12);
     pattern2d = (float*)fftfp.fftwf_malloc(bh * outpitch * sizeof(float)); // noise pattern window array
     pattern3d = (float*)fftfp.fftwf_malloc(bh * outpitch * sizeof(float)); // noise pattern window array
   }
@@ -1022,7 +1090,7 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
   // but use one block only for speed
   // Attention: other block could be the same, but we do not calculate them!
   {
-    std::lock_guard<std::mutex> lock(fftw_mutex);
+    GlobalLockGuard fftw_lock(env, "fftw", has_at_least_v12);
     plan1 = fftfp.fftwf_plan_many_dft_r2c(rank, ndim, 1,
       in, inembed, istride, idist, outrez, onembed, ostride, odist, planFlags); // 1 block
   }
@@ -1054,7 +1122,7 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
 FFT3DFilter::~FFT3DFilter() {
   // This is where you can deallocate any memory you might have used.
   {
-    std::lock_guard<std::mutex> lock(fftw_mutex);
+    GlobalLockGuard fftw_lock(env_saved, "fftw", has_at_least_v12);
     fftfp.fftwf_destroy_plan(plan);
     fftfp.fftwf_destroy_plan(plan1);
     fftfp.fftwf_destroy_plan(planinv);
@@ -3553,7 +3621,7 @@ public:
   // The is the destructor definition. This is called when the filter is destroyed.
 
 
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
   // This is the function that AviSynth calls to get a given frame.
   // So when this functions gets called, the filter is supposed to return frame n.
 
