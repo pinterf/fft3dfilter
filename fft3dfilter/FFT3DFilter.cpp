@@ -106,9 +106,11 @@
   Version 2.7     December 1, 2020 pinterf
                     - fix chroma for 32 bit float formats
 
+  ... See CHANGELOG.md for more details.
+
 */
 
-#define VERSION_NUMBER 2.10
+#define VERSION_NUMBER 2.12
 
 #include <avisynth.h>
 #include <stdio.h>
