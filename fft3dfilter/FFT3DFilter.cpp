@@ -637,14 +637,14 @@ FFT3DFilter::FFT3DFilter(PClip _child, float _sigma, float _beta, int _plane, in
 
   avisynth_if_ver = 6;
   avisynth_bugfix_ver = 0;
-  try {
-    avisynth_if_ver = env->GetEnvProperty(AEP_INTERFACE_VERSION);
+  try { env->CheckVersion(8); avisynth_if_ver = 8; }
+  catch (const AvisynthError&) {}
+  try { 
+    env->CheckVersion(9); // if this works, we are at least V9, can use GetEnvProperty with AEP_INTERFACE_VERSION
+    avisynth_if_ver = env->GetEnvProperty(AEP_INTERFACE_VERSION); // only since V9!
     avisynth_bugfix_ver = env->GetEnvProperty(AEP_INTERFACE_BUGFIX);
   }
-  catch (const AvisynthError&) {
-    try { env->CheckVersion(8); avisynth_if_ver = 8; }
-    catch (const AvisynthError&) {}
-  }
+  catch (const AvisynthError&) {}
   has_at_least_v8 = avisynth_if_ver >= 8; // frame properties, NewVideoFrameP, other V8 environment functions
   //has_at_least_v8_1 = avisynth_if_ver > 8 || (avisynth_if_ver == 8 && avisynth_bugfix_ver >= 1);
   // 8.1: C interface frameprop access fixed, IsPropertyWritable/MakePropertyWritable support, extended GetEnvProperty queries
